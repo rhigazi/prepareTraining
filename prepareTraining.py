@@ -22,6 +22,10 @@ def parse_args():
     p.add_argument("--window_left", type=int, default=6, help="Left window for swing detection")
     p.add_argument("--window_right", type=int, default=6, help="Right window for swing detection")
     p.add_argument("--min_move_atr", type=float, default=1.5, help="Min counter-move in ATR multiples")
+    p.add_argument("--min_rel_volume", type=float, default=None,
+                   help="Optional: minimum relative volume (feat_rel_volume) for a row to be kept")
+    p.add_argument("--max_gap_minutes", type=float, default=None,
+                   help="Optional: invalidate label windows crossing a gap larger than this many minutes")
     return p.parse_args()
 
 
@@ -38,6 +42,14 @@ def sort_and_dedup(df):
     df = df.assign(_sort_key=key).sort_values("_sort_key", kind="mergesort").drop(columns="_sort_key")
     df = df.drop_duplicates(subset=["t"], keep="first").reset_index(drop=True)
     return df
+
+
+def to_datetime_series(t):
+    if pd.api.types.is_numeric_dtype(t):
+        med = float(t.abs().median()) if len(t) else 0.0
+        unit = "ms" if med > 1e11 else "s"
+        return pd.to_datetime(t, unit=unit, utc=True, errors="coerce")
+    return pd.to_datetime(t, utc=True, errors="coerce")
 
 
 def main():
@@ -78,10 +90,25 @@ def main():
     else:
         sma80 = talib.SMA(c, timeperiod=80)
 
+    # CrossSMA: use provided column if present and valid, else compute from sma38/sma80
+    use_provided_cross = False
     if "CrossSMA(38,80)" in df.columns:
-        cross_sma = df["CrossSMA(38,80)"].to_numpy()
-    else:
-        cross_sma = np.zeros(n)
+        try:
+            arr = df["CrossSMA(38,80)"].to_numpy(dtype=float)
+            if np.isfinite(arr).any():
+                use_provided_cross = True
+                cross_sma = df["CrossSMA(38,80)"].to_numpy()
+        except Exception:
+            use_provided_cross = False
+    if not use_provided_cross:
+        cross_sma = np.zeros(n, dtype=int)
+        diff = sma38 - sma80
+        prev = np.roll(diff, 1)
+        prev[0] = np.nan
+        up_cross = (diff > 0) & (prev <= 0) & np.isfinite(diff) & np.isfinite(prev)
+        down_cross = (diff < 0) & (prev >= 0) & np.isfinite(diff) & np.isfinite(prev)
+        cross_sma[up_cross] = 1
+        cross_sma[down_cross] = -1
 
     atr = talib.ATR(h, l, c, timeperiod=14)
     adx = talib.ADX(h, l, c, timeperiod=14)
@@ -117,7 +144,7 @@ def main():
     wr = args.window_right
     min_move = args.min_move_atr
 
-    label_turn = np.zeros(n, dtype=int)
+    label_turn = np.zeros(n, dtype=float)
     label_max_move_atr = np.zeros(n, dtype=float)
 
     window_size = wl + wr + 1
@@ -129,11 +156,42 @@ def main():
     valid = np.isfinite(atr) & (atr != 0)
     valid_future = np.isfinite(fut_min_low) & np.isfinite(fut_max_high)
 
+    # Optional gap filter: invalidate windows crossing a large time gap
+    if args.max_gap_minutes is not None:
+        t_dt = to_datetime_series(df["t"])
+        if not t_dt.isna().all():
+            deltas = t_dt.diff().dt.total_seconds().to_numpy() / 60.0
+            gap_flag = np.zeros(n, dtype=bool)
+            gap_flag[1:] = np.nan_to_num(deltas[1:], nan=0.0) > args.max_gap_minutes
+            prefix = np.concatenate([[0], np.cumsum(gap_flag.astype(int))])
+            idx = np.arange(n)
+            left = idx - wl
+            right = idx + wr
+            full_window = (left >= 0) & (right < n)
+            lc = np.clip(left, 0, n - 1)
+            rc = np.clip(right, 0, n - 1)
+            gap_in_window = (prefix[rc + 1] - prefix[lc + 1]) > 0
+            gap_in_window = gap_in_window | (~full_window)
+            valid_future = valid_future & (~gap_in_window)
+
+    # Optional activity filter
+    if args.min_rel_volume is not None:
+        activity_ok = np.isfinite(feat_rel_volume) & (feat_rel_volume >= args.min_rel_volume)
+        valid_future = valid_future & activity_ok
+
     drop = h - fut_min_low
     rise = fut_max_high - l
 
     high_mask = (h == roll_max_h) & (drop >= min_move * atr) & valid & valid_future
     low_mask = (l == roll_min_l) & (rise >= min_move * atr) & valid & valid_future
+
+    # Resolve outside-bar conflicts: assign to side with larger counter-move (ATR units).
+    # Ties remain unresolved (label 0) for transparency.
+    conflict_mask = high_mask & low_mask
+    high_wins = conflict_mask & ((drop / atr) > (rise / atr))
+    low_wins = conflict_mask & ((rise / atr) > (drop / atr))
+    high_mask = (high_mask & ~conflict_mask) | high_wins
+    low_mask = (low_mask & ~conflict_mask) | low_wins
 
     label_turn[high_mask] = -1
     label_turn[low_mask] = 1
@@ -146,6 +204,11 @@ def main():
     down_move = (h - fut_min_low) / atr
     neu_move = np.maximum(up_move, down_move)
     label_max_move_atr[neutral_mask] = neu_move[neutral_mask]
+
+    # 1. Drop incomplete tail rows (no full future window) by forcing NaN
+    incomplete = ~valid_future
+    label_turn[incomplete] = np.nan
+    label_max_move_atr[incomplete] = np.nan
 
     out = pd.DataFrame({
         "meta_t": df["t"].values,
