@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""prepareTraining.py - Feature & Label Generator (PRD)."""
+"""prepareTraining.py - Batch Feature & Label Generator (PRD)."""
 
 import argparse
+import glob
 import os
+import re
 import sys
 
 import numpy as np
@@ -16,9 +18,13 @@ except Exception as e:  # pragma: no cover
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Prepare training CSV from raw 15-min market data.")
-    p.add_argument("--inputcsv", required=True, help="Path to input CSV")
-    p.add_argument("--outputcsv", required=True, help="Path to output CSV")
+    p = argparse.ArgumentParser(description="Prepare training CSVs from raw market data.")
+    p.add_argument("--input-dir", dest="input_dir", default="./raw_data",
+                   help="Folder containing raw CSV files (default: ./raw_data)")
+    p.add_argument("--output-dir", dest="output_dir", default="./prepared_data",
+                   help="Folder for prepared CSV files (default: ./prepared_data)")
+    p.add_argument("--pattern", default="*.csv",
+                   help="Glob pattern for raw CSV files (default: *.csv)")
     p.add_argument("--window_left", type=int, default=6, help="Left window for swing detection")
     p.add_argument("--window_right", type=int, default=6, help="Right window for swing detection")
     p.add_argument("--min_move_atr", type=float, default=1.5, help="Min counter-move in ATR multiples")
@@ -29,7 +35,23 @@ def parse_args():
     return p.parse_args()
 
 
+def parse_ticker_timeframe(path):
+    """Extract ticker and timeframe from a raw filename.
+
+    Expected (prefix) form: <TICKER>_<TIMEFRAME>_tool[...].csv
+    e.g. AAPL_5Min_tool.csv, AMZN_15Min_tool_202611212329.csv
+    Falls back to (stem, "") for anything that does not match.
+    """
+    stem = os.path.splitext(os.path.basename(path))[0]
+    m = re.match(r"^([^_]+)_([^_]+)_tool", stem)
+    if m:
+        return m.group(1), m.group(2)
+    return stem, ""
+
+
 def sort_and_dedup(df):
+    if "t" not in df.columns:
+        raise ValueError("Missing required column: t")
     t = df["t"]
     if pd.api.types.is_numeric_dtype(t):
         med = float(t.abs().median()) if len(t) else 0.0
@@ -38,9 +60,17 @@ def sort_and_dedup(df):
     else:
         key = pd.to_datetime(t, utc=True, errors="coerce")
         if key.isna().all():
-            key = t.astype(str)
+            key = pd.to_datetime(t, errors="coerce")
+
+    valid = ~key.isna()
+    if not valid.any():
+        raise ValueError("No valid timestamps in column 't'")
+    if not valid.all():
+        df = df.loc[valid].copy()
+        key = key.loc[valid]
+
     df = df.assign(_sort_key=key).sort_values("_sort_key", kind="mergesort").drop(columns="_sort_key")
-    df = df.drop_duplicates(subset=["t"], keep="first").reset_index(drop=True)
+    df = df.drop_duplicates(subset=["t"], keep="last").reset_index(drop=True)
     return df
 
 
@@ -49,21 +79,23 @@ def to_datetime_series(t):
         med = float(t.abs().median()) if len(t) else 0.0
         unit = "ms" if med > 1e11 else "s"
         return pd.to_datetime(t, unit=unit, utc=True, errors="coerce")
-    return pd.to_datetime(t, utc=True, errors="coerce")
+    out = pd.to_datetime(t, utc=True, errors="coerce")
+    if out.isna().all():
+        out = pd.to_datetime(t, errors="coerce")
+    return out
 
 
-def main():
-    args = parse_args()
-    if not os.path.exists(args.inputcsv):
-        print(f"Input file not found: {args.inputcsv}", file=sys.stderr)
-        sys.exit(1)
+def process_file(input_path, output_dir, args):
+    ticker, timeframe = parse_ticker_timeframe(input_path)
+    stem = os.path.splitext(os.path.basename(input_path))[0]
 
-    df = pd.read_csv(args.inputcsv)
+    df = pd.read_csv(input_path)
     required = ["t", "o", "h", "l", "c", "v", "vw"]
     for col in required:
         if col not in df.columns:
-            print(f"Missing required column: {col}", file=sys.stderr)
-            sys.exit(1)
+            raise ValueError(f"Missing required column: {col}")
+    if df.empty:
+        raise ValueError("Input file is empty")
 
     df = sort_and_dedup(df)
 
@@ -186,7 +218,6 @@ def main():
     low_mask = (l == roll_min_l) & (rise >= min_move * atr) & valid & valid_future
 
     # Resolve outside-bar conflicts: assign to side with larger counter-move (ATR units).
-    # Ties remain unresolved (label 0) for transparency.
     conflict_mask = high_mask & low_mask
     high_wins = conflict_mask & ((drop / atr) > (rise / atr))
     low_wins = conflict_mask & ((rise / atr) > (drop / atr))
@@ -205,13 +236,15 @@ def main():
     neu_move = np.maximum(up_move, down_move)
     label_max_move_atr[neutral_mask] = neu_move[neutral_mask]
 
-    # 1. Drop incomplete tail rows (no full future window) by forcing NaN
+    # Drop incomplete tail rows (no full future window) by forcing NaN
     incomplete = ~valid_future
     label_turn[incomplete] = np.nan
     label_max_move_atr[incomplete] = np.nan
 
     out = pd.DataFrame({
         "meta_t": df["t"].values,
+        "meta_ticker": [ticker] * n,
+        "meta_timeframe": [timeframe] * n,
         "meta_open": o,
         "meta_high": h,
         "meta_low": l,
@@ -236,13 +269,101 @@ def main():
         "label_max_move_atr": label_max_move_atr,
     })
 
+    feat_cols = [c for c in out.columns if c.startswith("feat_")]
     out = out.replace([np.inf, -np.inf], np.nan)
-    out = out.dropna(axis=0, how="any").reset_index(drop=True)
+    out = out.dropna(subset=feat_cols + ["label_turn", "label_max_move_atr"]).reset_index(drop=True)
+    if out.empty:
+        raise ValueError("No rows left after warmup/labeling/NaN cleanup")
     out["label_turn"] = out["label_turn"].astype(int)
 
-    os.makedirs(os.path.dirname(os.path.abspath(args.outputcsv)), exist_ok=True)
-    out.to_csv(args.outputcsv, index=False)
-    print(f"Wrote {len(out)} rows to {args.outputcsv}")
+    os.makedirs(output_dir, exist_ok=True)
+    output_name = f"{stem}_prepared.csv"
+    output_path = os.path.join(output_dir, output_name)
+    out.to_csv(output_path, index=False)
+
+    return {
+        "input": os.path.basename(input_path),
+        "output": output_name,
+        "ticker": ticker,
+        "timeframe": timeframe,
+        "rows": len(out),
+    }
+
+
+def main():
+    args = parse_args()
+
+    input_dir = args.input_dir
+    output_dir = args.output_dir
+
+    if not os.path.isdir(input_dir):
+        print(f"Input directory not found: {input_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    candidates = sorted(glob.glob(os.path.join(input_dir, args.pattern)))
+    files = []
+    for p in candidates:
+        if not os.path.isfile(p):
+            continue
+        base = os.path.basename(p)
+        # Never re-ingest already prepared outputs.
+        if base.endswith("_prepared.csv"):
+            continue
+        files.append(p)
+
+    if not files:
+        print(f"No matching CSV files found in: {input_dir} (pattern: {args.pattern})", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Found {len(files)} raw CSV file(s) in {input_dir}")
+
+    processed = []
+    skipped = []
+    total_rows = 0
+    label_counts = {-1: 0, 0: 0, 1: 0}
+
+    for path in files:
+        try:
+            info = process_file(path, output_dir, args)
+        except Exception as e:
+            print(f"SKIP {os.path.basename(path)}: {e}", file=sys.stderr)
+            skipped.append((os.path.basename(path), str(e)))
+            continue
+
+        processed.append(info)
+        total_rows += info["rows"]
+
+        # Accumulate label distribution from the written file.
+        try:
+            out_df = pd.read_csv(os.path.join(output_dir, info["output"]))
+            vc = out_df["label_turn"].value_counts().to_dict()
+            for k in (-1, 0, 1):
+                label_counts[k] += int(vc.get(k, 0))
+        except Exception:
+            pass
+
+        print(f"OK   {info['input']} -> {info['output']} | ticker={info['ticker']} | timeframe={info['timeframe']} | rows={info['rows']}")
+
+    print()
+    print("Batch summary")
+    print(f"  Found files:      {len(files)}")
+    print(f"  Processed files:  {len(processed)}")
+    print(f"  Skipped files:    {len(skipped)}")
+    if skipped:
+        print("  Skipped details:")
+        for name, err in skipped:
+            print(f"    - {name}: {err}")
+    print(f"  Total rows:       {total_rows}")
+    print("  label_turn distribution (all outputs):")
+    for k in (-1, 0, 1):
+        print(f"    {k}: {label_counts[k]}")
+    print("  Per-file rows:")
+    for info in processed:
+        print(f"    {info['output']} | ticker={info['ticker']} | timeframe={info['timeframe']} | rows={info['rows']}")
+
+    # Batch processing completed; individual file failures were already reported above.
 
 
 if __name__ == "__main__":
