@@ -92,11 +92,10 @@ def load_prepared(input_dir):
 
 def summarize_split(name, df):
     if df.empty:
-        print(f"{name}: 0 rows")
-        return
+        return f"{name}: 0 rows"
     vc = df["label_turn"].value_counts().to_dict()
-    print(f"{name}: rows={len(df)} | time={df['meta_t'].min()} .. {df['meta_t'].max()} | "
-          f"label_turn: -1={vc.get(-1, 0)}, 0={vc.get(0, 0)}, 1={vc.get(1, 0)}")
+    return (f"{name}: rows={len(df)} | time={df['meta_t'].min()} .. {df['meta_t'].max()} | "
+            f"label_turn: -1={vc.get(-1, 0)}, 0={vc.get(0, 0)}, 1={vc.get(1, 0)}")
 
 
 class TurningPointMLP(nn.Module):
@@ -207,10 +206,10 @@ def main():
     df_test = df_rest[test_mask].copy().reset_index(drop=True)
 
     log("\nSplit summary:")
-    summarize_split("train", df_train)
-    summarize_split("val", df_val)
-    summarize_split("test", df_test)
-    summarize_split("out_of_ticker", df_oot)
+    log(summarize_split("train", df_train))
+    log(summarize_split("val", df_val))
+    log(summarize_split("test", df_test))
+    log(summarize_split("out_of_ticker", df_oot))
 
     # Scaling
     scaler = StandardScaler()
