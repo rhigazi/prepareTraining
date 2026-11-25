@@ -40,6 +40,8 @@ def parse_args():
     p.add_argument("--class-weight-power", type=float, default=0.35)
     p.add_argument("--label-smoothing", type=float, default=0.05)
     p.add_argument("--cooldown-bars", type=int, default=5)
+    p.add_argument("--purge-minutes", type=float, default=0.0,
+                   help="Optional purge window (minutes) around split boundaries to reduce label leakage")
     p.add_argument("--use-move-atr-weighting", action="store_true", default=True)
     return p.parse_args()
 
@@ -189,16 +191,16 @@ def main():
     # Time-based split over meta_t for remaining tickers
     if df_rest.empty:
         raise ValueError("No in-ticker data after out-of-ticker removal.")
-    t_sorted = df_rest["meta_t"].sort_values()
-    n = len(t_sorted)
-    train_end_pos = int(n * args.train_frac)
-    val_end_pos = int(n * (args.train_frac + args.val_frac))
-    train_cutoff = t_sorted.iloc[train_end_pos - 1] if train_end_pos > 0 else t_sorted.iloc[0]
-    val_cutoff = t_sorted.iloc[val_end_pos - 1] if val_end_pos > 0 else t_sorted.iloc[-1]
+    unique_times = np.sort(df_rest["meta_t"].unique())
+    train_pos = int(len(unique_times) * args.train_frac)
+    val_pos = int(len(unique_times) * (args.train_frac + args.val_frac))
+    train_cutoff = unique_times[max(train_pos - 1, 0)]
+    val_cutoff = unique_times[max(val_pos - 1, 0)]
 
-    train_mask = df_rest["meta_t"] <= train_cutoff
-    val_mask = (df_rest["meta_t"] > train_cutoff) & (df_rest["meta_t"] <= val_cutoff)
-    test_mask = df_rest["meta_t"] > val_cutoff
+    purge = pd.Timedelta(minutes=args.purge_minutes)
+    train_mask = df_rest["meta_t"] <= (train_cutoff - purge)
+    val_mask = (df_rest["meta_t"] > (train_cutoff + purge)) & (df_rest["meta_t"] <= (val_cutoff - purge))
+    test_mask = df_rest["meta_t"] > (val_cutoff + purge)
 
     df_train = df_rest[train_mask].copy().reset_index(drop=True)
     df_val = df_rest[val_mask].copy().reset_index(drop=True)
@@ -391,7 +393,6 @@ def main():
 
     # Save predictions
     def build_prediction_frame(df_src, probs, pred_idx):
-        raw_pred_idx = pred_idx.copy() if len(pred_idx) else np.array([])
         # recompute raw with cooldown 1 for raw_pred
         raw = suppress_signal_clusters(probs, best_threshold, cooldown_bars=1) if len(probs) else np.array([])
         filt = pred_idx if len(pred_idx) else np.array([])
@@ -413,8 +414,8 @@ def main():
             out["prob_neutral"] = np.nan
             out["prob_low"] = np.nan
         idx_to_turn = {0: -1, 1: 0, 2: 1}
-        out["raw_pred_turn"] = [idx_to_turn.get(int(i), 0) for i in raw] if len(raw) else []
-        out["filtered_pred_turn"] = [idx_to_turn.get(int(i), 0) for i in filt] if len(filt) else []
+        out["raw_pred_turn"] = [idx_to_turn.get(int(i), 0) for i in raw] if len(raw) else [0] * len(out)
+        out["filtered_pred_turn"] = [idx_to_turn.get(int(i), 0) for i in filt] if len(filt) else [0] * len(out)
         return out
 
     test_pred_df = build_prediction_frame(df_test, test_probs, test_pred_idx)
@@ -422,7 +423,6 @@ def main():
     log(f"Saved predictions_test.csv ({len(test_pred_df)} rows)")
 
     if len(df_oot):
-        oot_pred_turn = np.where(oot_pred_idx == 0, -1, np.where(oot_pred_idx == 2, 1, 0))
         oot_pred_df = build_prediction_frame(df_oot, oot_probs, oot_pred_idx)
         oot_pred_df.to_csv(os.path.join(args.output_dir, "predictions_oot.csv"), index=False)
         log(f"Saved predictions_oot.csv ({len(oot_pred_df)} rows)")
