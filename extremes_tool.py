@@ -23,6 +23,10 @@ try:
     import prepare_sma5_data as sma5
 except Exception:
     sma5 = None
+try:
+    import ml4t_features as ml4t
+except Exception:
+    ml4t = None
 from train_turning_points import TurningPointMLP, suppress_signal_clusters
 
 try:
@@ -74,7 +78,9 @@ def load_model(model_dir, cooldown_override=None, min_conf=None):
 
 def annotate_df(df_raw, ckpt, scaler, model, threshold, cooldown):
     feature_cols = ckpt["feature_cols"]
-    if sma5 is not None and any(c.startswith("feat_rsi") for c in feature_cols):
+    if ml4t is not None and "feat_ret1" in feature_cols:
+        df = ml4t.compute_features(df_raw.copy())
+    elif sma5 is not None and any(c.startswith("feat_rsi") for c in feature_cols):
         df = sma5.compute_features(df_raw.copy())
     else:
         df = ae.compute_features(df_raw.copy())
