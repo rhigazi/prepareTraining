@@ -43,6 +43,11 @@ def parse_args():
     p.add_argument("--purge-minutes", type=float, default=0.0,
                    help="Optional purge window (minutes) around split boundaries to reduce label leakage")
     p.add_argument("--use-move-atr-weighting", action="store_true", default=True)
+    p.add_argument("--disable-move-atr-weighting", dest="use_move_atr_weighting", action="store_false",
+                   help="Disable move-ATR sample weighting")
+    p.add_argument("--threshold-min", type=float, default=0.40, help="Min threshold for tuning")
+    p.add_argument("--threshold-max", type=float, default=0.80, help="Max threshold for tuning")
+    p.add_argument("--threshold-step", type=float, default=0.05, help="Threshold step")
     return p.parse_args()
 
 
@@ -315,7 +320,7 @@ def main():
 
     # Threshold tuning on validation
     val_probs, val_true = predict_proba(val_loader)
-    thresholds = np.arange(0.40, 0.81, 0.05)
+    thresholds = np.arange(args.threshold_min, args.threshold_max + 1e-9, args.threshold_step)
     results = []
     for thresh in thresholds:
         if len(val_probs) == 0:
@@ -326,9 +331,17 @@ def main():
     if results:
         best = max(results, key=lambda r: r[3])
         best_threshold = float(best[0])
+        best_val_p, best_val_r, best_val_f1_filt = best[1], best[2], best[3]
     else:
         best_threshold = 0.50
+        best_val_p, best_val_r, best_val_f1_filt = 0.0, 0.0, 0.0
+    log("\nThreshold tuning on validation:")
+    log("  thresh | P     | R     | F1    | signals")
+    for thresh, fp, fr, ff, nsig in results:
+        mark = "  <- best" if abs(thresh - best_threshold) < 1e-9 else ""
+        log(f"  {thresh:.2f}   | {fp:.3f} | {fr:.3f} | {ff:.3f} | {nsig}{mark}")
     log(f"\nSelected BEST_THRESHOLD: {best_threshold:.2f}")
+    log(f"Val Turn (filtered) P/R/F1: {best_val_p:.3f}/{best_val_r:.3f}/{best_val_f1_filt:.3f}")
 
     # Evaluate test
     test_probs, test_true = predict_proba(test_loader)

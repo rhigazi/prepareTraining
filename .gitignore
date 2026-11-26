@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+raw_data/
+prepared_data/
+prepared_sma5/
+annotated_data/
+extremes_output/
+extremes_output2/
+extremes_output_sma5/
+tol3_test/
+runs/
