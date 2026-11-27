@@ -140,6 +140,7 @@ def ko_env_result(env: KOTradingEnv) -> dict:
     holding = np.array([t["holding_bars"] for t in trades], dtype=float)
     stakes = np.array([t["stake_usd"] for t in trades], dtype=float)
     ko_trades = [t for t in trades if t["knockout"]]
+    partials = [t for t in trades if t.get("partial_done", False)]
     total_gross = float(gross.sum()) if len(gross) else 0.0
     total_fees = float(fees.sum()) if len(fees) else 0.0
     total_net = float(net.sum()) if len(net) else 0.0
@@ -202,6 +203,10 @@ def ko_env_result(env: KOTradingEnv) -> dict:
         "ko_count": int(len(ko_trades)),
         "ko_rate": float(len(ko_trades) / len(trades)) if trades else 0.0,
         "ko_loss_usd": float(-sum(t["gross_pnl_usd"] for t in ko_trades)),
+        "partial_count": int(len(partials)),
+        "partial_rate": float(len(partials) / len(trades)) if trades else 0.0,
+        "avg_partial_holding_bars": float(np.mean([t.get("partial_holding_bars", 0)
+                                                   for t in partials])) if partials else 0.0,
         "avg_mr_ko_ratio": float(mr_ratios.mean()) if len(mr_ratios) else 0.0,
         "median_mr_ko_ratio": float(np.median(mr_ratios)) if len(mr_ratios) else 0.0,
         "min_mr_ko_ratio": float(mr_ratios.min()) if len(mr_ratios) else 0.0,
@@ -424,6 +429,9 @@ def ko_aggregate(results: Sequence[dict]) -> dict:
         "fee_to_gross": float(fee_to_gross),
         "ko_count": ko_count,
         "ko_rate": float(ko_count / len(trades)) if trades else 0.0,
+        "partial_count": int(sum(r.get("partial_count", 0) for r in results)),
+        "partial_rate": float(sum(r.get("partial_count", 0) for r in results)
+                              / len(trades)) if trades else 0.0,
         "avg_mr_ko_ratio": float(mr_ratios.mean()) if len(mr_ratios) else 0.0,
         "median_mr_ko_ratio": float(np.median(mr_ratios)) if len(mr_ratios) else 0.0,
         "min_mr_ko_ratio": float(mr_ratios.min()) if len(mr_ratios) else 0.0,
@@ -587,7 +595,8 @@ def write_ko_per_series_csv(path: str, split: str, method: str, results: Sequenc
     fields = ["split", "method", "ticker", "timeframe", "total_return", "max_drawdown",
               "sharpe", "trade_count", "win_rate", "avg_holding_bars", "avg_trade_usd",
               "avg_stake_usd", "gross_pnl_usd", "fees_usd", "net_pnl_usd", "fee_to_gross",
-              "ko_count", "ko_rate", "ko_loss_usd", "avg_mr_ko_ratio",
+              "ko_count", "ko_rate", "ko_loss_usd", "partial_count", "partial_rate",
+              "avg_partial_holding_bars", "avg_mr_ko_ratio",
               "median_mr_ko_ratio", "min_mr_ko_ratio", "max_mr_ko_ratio",
               "close_count", "eod_count",
               "sma_cross_count", "mean_revert_count", "max_hold_count",
@@ -611,8 +620,12 @@ def write_ko_per_series_csv(path: str, split: str, method: str, results: Sequenc
 def write_ko_trades_csv(path: str, results: Sequence[dict]):
     fields = ["ticker", "timeframe", "entry_idx", "exit_idx", "entry_t", "exit_t",
               "direction", "cert_idx", "leverage", "size_idx", "size_fraction",
-              "stake_usd", "entry_price", "exit_price", "ko_level", "gross_pnl_usd",
-              "fees_usd", "net_pnl_usd", "holding_bars", "knockout", "exit_reason",
+              "stake_usd", "remaining_stake_usd", "entry_price", "exit_price",
+              "ko_level", "gross_pnl_usd", "fees_usd", "net_pnl_usd",
+              "holding_bars", "knockout", "exit_reason",
+              "partial_done", "partial_stake_usd", "partial_gross_usd",
+              "partial_fees_usd", "partial_exit_idx", "partial_exit_price",
+              "partial_holding_bars",
               "entry_signal", "entry_had_signal", "entry_mid", "mid_target_active",
               "entry_mr_ratio", "entry_expected_net_fees",
               "max_proximity", "min_ko_dist_atr"]
@@ -735,7 +748,7 @@ def format_ko_table(split: str, aggs: Dict[str, dict], high_conf: float,
                     size_fractions: Sequence[float]) -> str:
     lines = [f"\n=== {split.upper()} (KO certificates) ==="]
     header = (f"{'method':<16} {'meanRet':>9} {'maxDD':>8} {'trades':>7} "
-              f"{'win%':>6} {'hold':>7} {'KOs':>5} {'KO%':>6} {'filt':>5} {'MR/KO':>7} "
+              f"{'win%':>6} {'hold':>7} {'KOs':>5} {'KO%':>6} {'part':>5} {'filt':>5} {'MR/KO':>7} "
               f"{'fees$':>9} {'gross$':>10} {'net$':>10} {'fee/gross':>9} "
               f"{'sigUse%':>8} {'certPref':>18} {'sizePref':>12}")
     lines.append(header)
@@ -747,7 +760,8 @@ def format_ko_table(split: str, aggs: Dict[str, dict], high_conf: float,
             f"{name:<16} {a['mean_return']*100:>8.2f}% {a['mean_max_drawdown']*100:>7.2f}% "
             f"{a['trade_count']:>7d} {a['win_rate']*100:>5.1f}% {a['avg_holding_bars']:>6.1f} "
             f"{a['ko_count']:>5d} {a['ko_rate']*100:>5.1f}% "
-            f"{a.get('filtered_entries', 0):>5d} {a.get('avg_mr_ko_ratio', 0.0):>7.2f} "
+            f"{a.get('partial_count', 0):>5d} {a.get('filtered_entries', 0):>5d} "
+            f"{a.get('avg_mr_ko_ratio', 0.0):>7.2f} "
             f"{a['fees_usd']:>9.0f} {a['gross_pnl_usd']:>10.0f} {a['net_pnl_usd']:>10.0f} "
             f"{fg_s:>9} {signal_usage_rate(a)*100:>7.1f}% "
             f"{_cert_pref(a['cert_counts'], cert_leverages):>18} "
@@ -952,7 +966,16 @@ def main():
     min_ko_buffer_atr = float(cfg.get("min_ko_buffer_atr", 0.0))
     mr_only = bool(cfg.get("mr_only", False))
     min_mr_ko_ratio = float(cfg.get("min_mr_ko_ratio", 0.0))
+    mr_ko_ratios = cfg.get("mr_ko_ratios")
+    if isinstance(mr_ko_ratios, str):
+        mr_ko_ratios = tuple(float(v) for v in mr_ko_ratios.split(",") if v.strip())
+    elif mr_ko_ratios is not None:
+        mr_ko_ratios = tuple(float(v) for v in mr_ko_ratios)
+    mr_ratio_vol_scaling = float(cfg.get("mr_ratio_vol_scaling", 0.0))
     mr_ratio_bonus = float(cfg.get("mr_ratio_bonus", 0.25))
+    partial_target = bool(cfg.get("partial_target", False))
+    partial_fraction = float(cfg.get("partial_fraction", 0.5))
+    partial_ko_multiple = float(cfg.get("partial_ko_multiple", 1.0))
     if args.timeframes is not None or args.exclude_timeframes is not None:
         timeframes = resolve_timeframes(args.timeframes, args.exclude_timeframes)
     else:
@@ -1006,7 +1029,12 @@ def main():
             min_ko_buffer_atr=min_ko_buffer_atr,
             mr_only=mr_only,
             min_mr_ko_ratio=min_mr_ko_ratio,
+            mr_ko_ratios=mr_ko_ratios,
+            mr_ratio_vol_scaling=mr_ratio_vol_scaling,
             mr_ratio_bonus=mr_ratio_bonus,
+            partial_target=partial_target,
+            partial_fraction=partial_fraction,
+            partial_ko_multiple=partial_ko_multiple,
             signal_bonus=signal_bonus, signal_conf_min=signal_conf_min,
         )
         methods = {
@@ -1100,7 +1128,12 @@ def main():
             "min_ko_buffer_atr": min_ko_buffer_atr,
             "mr_only": mr_only,
             "min_mr_ko_ratio": min_mr_ko_ratio,
+            "mr_ko_ratios": list(mr_ko_ratios) if mr_ko_ratios else None,
+            "mr_ratio_vol_scaling": mr_ratio_vol_scaling,
             "mr_ratio_bonus": mr_ratio_bonus,
+            "partial_target": partial_target,
+            "partial_fraction": partial_fraction,
+            "partial_ko_multiple": partial_ko_multiple,
         })
     else:
         report.update({

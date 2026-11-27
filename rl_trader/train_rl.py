@@ -391,9 +391,19 @@ def parse_args():
     p.add_argument("--mr-only", action="store_true",
                    help="KO: disable SMA-cross targets; trade mean-reversion only.")
     p.add_argument("--min-mr-ko-ratio", type=float, default=0.0,
-                   help="KO: block entries whose mid-distance / KO-distance ratio is below this.")
+                   help="KO: global minimum mid-distance / KO-distance ratio for entries.")
+    p.add_argument("--mr-ko-ratios", default=None,
+                   help="KO: per-certificate ratio thresholds, e.g. 0.8,1.0,1.5,2.0.")
+    p.add_argument("--mr-ratio-vol-scaling", type=float, default=0.0,
+                   help="KO: increase the per-cert ratio threshold with ATR (0 disables).")
     p.add_argument("--mr-ratio-bonus", type=float, default=0.25,
                    help="KO: extra reward scale for higher mid/KO ratios on mean-reversion exits.")
+    p.add_argument("--partial-target", action="store_true",
+                   help="KO: take partial profit at a multiple of the initial KO distance.")
+    p.add_argument("--partial-fraction", type=float, default=0.5,
+                   help="KO: fraction of the position closed at the partial target.")
+    p.add_argument("--partial-ko-multiple", type=float, default=1.0,
+                   help="KO: partial target distance as a multiple of the initial KO distance.")
     p.add_argument("--reward-scale", type=float, default=100.0)
     p.add_argument("--dd-penalty", type=float, default=0.10)
     p.add_argument("--trade-penalty", type=float, default=0.01)
@@ -410,6 +420,9 @@ def parse_args():
     p.add_argument("--bc-anchor", type=float, default=0.0,
                    help="Auxiliary BC cross-entropy weight during PPO updates "
                         "(keeps the rule policy from collapsing to flat; 0 disables).")
+    p.add_argument("--bc-entry-frac", type=float, default=0.0,
+                   help="Oversample entry actions in the BC dataset to this fraction "
+                        "(0 disables; useful for rare high-conviction setups).")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", default="cpu")
     return p.parse_args()
@@ -456,6 +469,8 @@ def main():
 
     cert_leverages = tuple(float(v) for v in args.cert_leverages.split(",") if v.strip())
     size_fractions = tuple(float(v) for v in args.size_fractions.split(",") if v.strip())
+    mr_ko_ratios = (tuple(float(v) for v in args.mr_ko_ratios.split(",") if v.strip())
+                    if args.mr_ko_ratios else None)
     if args.env == "ko":
         EnvClass = KOTradingEnv
         env_kwargs = dict(
@@ -481,7 +496,12 @@ def main():
             min_ko_buffer_atr=args.min_ko_buffer_atr,
             mr_only=args.mr_only,
             min_mr_ko_ratio=args.min_mr_ko_ratio,
+            mr_ko_ratios=mr_ko_ratios,
+            mr_ratio_vol_scaling=args.mr_ratio_vol_scaling,
             mr_ratio_bonus=args.mr_ratio_bonus,
+            partial_target=args.partial_target,
+            partial_fraction=args.partial_fraction,
+            partial_ko_multiple=args.partial_ko_multiple,
             signal_bonus=args.signal_bonus,
             signal_conf_min=args.signal_conf_min,
         )
@@ -530,6 +550,19 @@ def main():
             f"(conf>={args.bc_conf_min})")
         bc_obs, bc_act, bc_ret = collect_bc_dataset(envs, args.bc_samples, args.bc_conf_min)
         log(f"BC dataset: {len(bc_act)} transitions | rule mean episode return {bc_ret:+.4f}")
+        if args.bc_entry_frac > 0.0:
+            entry_mask = bc_act >= 2
+            n_entry = int(entry_mask.sum())
+            if n_entry > 0:
+                n_hold = len(bc_act) - n_entry
+                target = float(np.clip(args.bc_entry_frac, 0.01, 0.9))
+                repeat = max(1, int((target / (1.0 - target)) * n_hold / n_entry))
+                bc_obs = np.concatenate(
+                    [bc_obs, np.repeat(bc_obs[entry_mask], repeat, axis=0)], axis=0)
+                bc_act = np.concatenate(
+                    [bc_act, np.repeat(bc_act[entry_mask], repeat)], axis=0)
+                log(f"BC entry oversampling: {n_entry} entries x{repeat} -> "
+                    f"{len(bc_act)} transitions")
         acc = behaviour_clone(agent, bc_obs, bc_act, args.bc_epochs, args.bc_lr, log=log)
         log(f"BC warm start finished (action accuracy {acc:.3f})")
         bc_obs_t = torch.as_tensor(bc_obs, dtype=torch.float32, device=agent.device)

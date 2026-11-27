@@ -843,7 +843,7 @@ class TradingEnv(gym.Env):
         return info
 
 
-KO_OBS_DIM = 42  # account + mid/SMA + fee ratios + 4-slot certificate palette (5 values/cert)
+KO_OBS_DIM = 43  # account + partial flag + mid/SMA + fee ratios + 4-slot certificate palette (5 values/cert)
 MAX_CERTS_STATE = 4
 
 
@@ -903,7 +903,12 @@ class KOTradingEnv(gym.Env):
         min_ko_buffer_atr: float = 0.0,
         mr_only: bool = False,
         min_mr_ko_ratio: float = 0.0,
+        mr_ko_ratios: Optional[Sequence[float]] = None,
+        mr_ratio_vol_scaling: float = 0.0,
         mr_ratio_bonus: float = 0.25,
+        partial_target: bool = False,
+        partial_fraction: float = 0.5,
+        partial_ko_multiple: float = 1.0,
         signal_bonus: float = 0.0,
         signal_conf_min: float = 0.55,
         seed: int = 0,
@@ -939,7 +944,13 @@ class KOTradingEnv(gym.Env):
         self.min_ko_buffer_atr = float(min_ko_buffer_atr)
         self.mr_only = bool(mr_only)
         self.min_mr_ko_ratio = float(min_mr_ko_ratio)
+        self.mr_ko_ratios = (tuple(float(v) for v in mr_ko_ratios)
+                             if mr_ko_ratios else None)
+        self.mr_ratio_vol_scaling = float(mr_ratio_vol_scaling)
         self.mr_ratio_bonus = float(mr_ratio_bonus)
+        self.partial_target = bool(partial_target)
+        self.partial_fraction = float(partial_fraction)
+        self.partial_ko_multiple = float(partial_ko_multiple)
         if self.mr_only:
             self.exit_on_sma_cross = False
         self.rng = np.random.default_rng(seed)
@@ -965,6 +976,14 @@ class KOTradingEnv(gym.Env):
         self.position = 0
         self.position_value = 0.0
         self.stake = 0.0
+        self.remaining_stake = 0.0
+        self.partial_done = False
+        self.partial_gross = 0.0
+        self.partial_fees = 0.0
+        self.partial_exit_idx = 0
+        self.partial_exit_price = 0.0
+        self.partial_stake = 0.0
+        self.partial_target_price = 0.0
         self.size_frac = 0.0
         self.size_idx = 0
         self.cert_idx = 0
@@ -1025,6 +1044,14 @@ class KOTradingEnv(gym.Env):
         self.position = 0
         self.position_value = 0.0
         self.stake = 0.0
+        self.remaining_stake = 0.0
+        self.partial_done = False
+        self.partial_gross = 0.0
+        self.partial_fees = 0.0
+        self.partial_exit_idx = 0
+        self.partial_exit_price = 0.0
+        self.partial_stake = 0.0
+        self.partial_target_price = 0.0
         self.size_frac = 0.0
         self.size_idx = 0
         self.cert_idx = 0
@@ -1186,21 +1213,78 @@ class KOTradingEnv(gym.Env):
         return (float(edge_fees), float(ko_atr), float(mr_ko_ratio),
                 float(expected_net_fees))
 
+    def _min_mr_ratio(self, idx: int, cert_idx: int) -> float:
+        if self.mr_ko_ratios and cert_idx < len(self.mr_ko_ratios):
+            base = float(self.mr_ko_ratios[cert_idx])
+        else:
+            base = float(self.min_mr_ko_ratio)
+        if base <= 0.0:
+            return 0.0
+        if self.mr_ratio_vol_scaling > 0.0:
+            s = self.series
+            assert s is not None
+            atr_norm = abs(float(s.market[idx, 3])) / 100.0
+            base *= 1.0 + self.mr_ratio_vol_scaling * max(0.0, atr_norm - 0.005) / 0.005
+        return base
+
     def entry_edge_ok(self, idx: int, cert_idx: int, size_idx: int) -> bool:
         """Strict cost/KO/mean-reversion filter for new entries."""
+        min_ratio = self._min_mr_ratio(idx, cert_idx)
         if (self.min_edge_ratio <= 0.0 and self.min_ko_buffer_atr <= 0.0
-                and self.min_mr_ko_ratio <= 0.0):
+                and min_ratio <= 0.0):
             return True
         edge_fees, ko_atr, mr_ko_ratio, _ = self._entry_edge(idx, cert_idx, size_idx)
         return (edge_fees >= self.min_edge_ratio
                 and ko_atr >= self.min_ko_buffer_atr
-                and mr_ko_ratio >= self.min_mr_ko_ratio)
+                and mr_ko_ratio >= min_ratio)
 
     def _unrealized(self, price: float) -> float:
         if self.position == 0 or self.entry_price <= 0:
             return 0.0
-        pnl = self.position * self.stake * self.leverage * (price / self.entry_price - 1.0)
-        return max(pnl, -self.stake)
+        stake = self.remaining_stake if self.remaining_stake > 0 else self.stake
+        pnl = self.position * stake * self.leverage * (price / self.entry_price - 1.0)
+        return max(pnl, -stake)
+
+    def _mark_position(self, price: float) -> None:
+        if self.position == 0:
+            self.position_value = 0.0
+            return
+        stake = self.remaining_stake
+        pnl = self.position * stake * self.leverage * (
+            price / max(self.entry_price, 1e-9) - 1.0)
+        self.position_value = max(0.0, stake + pnl)
+
+    def _maybe_partial_exit(self, idx: int) -> None:
+        """Take partial profit at the configured KO-multiple target (causal high/low)."""
+        if (not self.partial_target or self.position == 0 or self.partial_done
+                or self.remaining_stake <= 0):
+            return
+        s = self.series
+        assert s is not None
+        target = self.partial_target_price
+        if self.position > 0:
+            hit = float(s.high[idx]) >= target
+        else:
+            hit = float(s.low[idx]) <= target
+        if not hit:
+            return
+        close_stake = self.remaining_stake * self.partial_fraction
+        if close_stake <= 0:
+            return
+        fill = target
+        gross = self.position * close_stake * self.leverage * (
+            fill / max(self.entry_price, 1e-9) - 1.0)
+        fee = self.trade_fee
+        self.cash += close_stake + gross - fee
+        self.remaining_stake -= close_stake
+        self.partial_gross += gross
+        self.partial_fees += fee
+        self.total_fees += fee
+        self.partial_done = True
+        self.partial_exit_idx = int(idx)
+        self.partial_exit_price = float(fill)
+        self.partial_stake = float(close_stake)
+        self.partial_target_price = 0.0
 
     def _observation(self) -> np.ndarray:
         s = self.series
@@ -1220,8 +1304,9 @@ class KOTradingEnv(gym.Env):
             dist_atr = dist * price / max(self._atr_at(idx), 1e-9)
             dist_atr_norm = float(np.clip(dist_atr / 10.0, 0.0, 2.0))
             proximity = 1.0 - dist_norm
-            unreal = float(np.clip(self._unrealized(price) / max(self.stake, 1e-9), -1.0, 1.0))
-            stake_norm = self.stake / max(self.position_size, 1e-9)
+            unreal = float(np.clip(self._unrealized(price)
+                                   / max(self.remaining_stake, 1e-9), -1.0, 1.0))
+            stake_norm = self.remaining_stake / max(self.position_size, 1e-9)
             lev_norm = self.leverage / 100.0
             holding_norm = float(np.clip(self.holding / 100.0, 0.0, 1.0))
         else:
@@ -1285,6 +1370,7 @@ class KOTradingEnv(gym.Env):
 
         ko_block = np.array([
             float(self.position),
+            float(self.partial_done),
             float(np.clip(stake_norm, 0.0, 1.0)),
             float(np.clip(lev_norm, 0.0, 1.0)),
             float(np.clip(dist_norm, 0.0, 1.0)),
@@ -1325,12 +1411,23 @@ class KOTradingEnv(gym.Env):
         self.position = direction
         self.stake = stake
         self.position_value = stake
+        self.remaining_stake = stake
+        self.partial_done = False
+        self.partial_gross = 0.0
+        self.partial_fees = 0.0
+        self.partial_exit_idx = 0
+        self.partial_exit_price = 0.0
+        self.partial_stake = 0.0
         self.size_frac = self.size_fractions[size_idx]
         self.size_idx = int(size_idx)
         self.cert_idx = int(cert_idx)
         self.leverage = leverage
         self.initial_ko_dist = ko_dist
         self.ko_level = entry * (1.0 - direction * ko_dist)
+        self.partial_target_price = (
+            entry * (1.0 + direction * self.partial_ko_multiple * ko_dist)
+            if self.partial_target else 0.0
+        )
         atr = self._atr_at(idx)
         self.initial_ko_dist_atr = (entry * ko_dist) / max(atr, 1e-9)
         self.entry_price = entry
@@ -1362,18 +1459,22 @@ class KOTradingEnv(gym.Env):
         assert s is not None
         if self.position == 0:
             return
+        remaining = self.remaining_stake
+        partial_gross = self.partial_gross
+        partial_fees = self.partial_fees
         if knockout:
-            gross = -self.stake
-            fees = self.entry_fee  # no exit order on a KO
+            gross_final = -remaining
+            fees = self.entry_fee + partial_fees  # no exit order on a KO
         else:
-            gross = self.position * self.stake * self.leverage * (
+            gross_final = self.position * remaining * self.leverage * (
                 exit_price / max(self.entry_price, 1e-9) - 1.0
             )
-            fees = self.entry_fee + self.trade_fee
+            fees = self.entry_fee + partial_fees + self.trade_fee
+        gross = partial_gross + gross_final
         net = gross - fees
         self.gross_pnl += gross
         self.net_pnl += net
-        self.total_fees += (fees - self.entry_fee)
+        self.total_fees += (fees - self.entry_fee - partial_fees)
         stake = self.stake
         self.trade_log.append({
             "entry_idx": int(self.entry_idx),
@@ -1386,6 +1487,7 @@ class KOTradingEnv(gym.Env):
             "size_idx": int(self.size_idx),
             "size_fraction": float(self.size_frac),
             "stake_usd": float(self.stake),
+            "remaining_stake_usd": float(remaining),
             "entry_price": float(self.entry_price),
             "exit_price": float(exit_price),
             "ko_level": float(self.ko_level),
@@ -1395,6 +1497,14 @@ class KOTradingEnv(gym.Env):
             "holding_bars": int(exit_idx - self.entry_idx),
             "knockout": bool(knockout),
             "exit_reason": exit_reason,
+            "partial_done": bool(self.partial_done),
+            "partial_stake_usd": float(self.partial_stake),
+            "partial_gross_usd": float(partial_gross),
+            "partial_fees_usd": float(partial_fees),
+            "partial_exit_idx": int(self.partial_exit_idx),
+            "partial_exit_price": float(self.partial_exit_price),
+            "partial_holding_bars": int(self.partial_exit_idx - self.entry_idx)
+            if self.partial_done else 0,
             "entry_signal": int(self.entry_signal),
             "entry_had_signal": bool(self.entry_signal != 0),
             "entry_mid": float(self.entry_mid),
@@ -1406,12 +1516,20 @@ class KOTradingEnv(gym.Env):
         })
         if knockout:
             self.ko_count += 1
-            self.cash += 0.0  # stake was paid on entry and is now lost
+            self.cash += 0.0  # remaining stake was paid on entry and is now lost
         else:
-            self.cash += stake + gross - self.trade_fee
+            self.cash += remaining + gross_final - self.trade_fee
         self.position = 0
         self.position_value = 0.0
         self.stake = 0.0
+        self.remaining_stake = 0.0
+        self.partial_done = False
+        self.partial_gross = 0.0
+        self.partial_fees = 0.0
+        self.partial_exit_idx = 0
+        self.partial_exit_price = 0.0
+        self.partial_stake = 0.0
+        self.partial_target_price = 0.0
         self.size_frac = 0.0
         self.leverage = 0.0
         self.ko_level = 0.0
@@ -1438,6 +1556,8 @@ class KOTradingEnv(gym.Env):
 
         # equity before the step (position marked at close_t)
         price_t = float(s.close[idx])
+        self._maybe_partial_exit(idx)
+        self._mark_position(price_t)
         equity_before = self.cash + self.position_value
         dd_before = 1.0 - equity_before / max(self.peak, 1e-9)
 
@@ -1511,10 +1631,10 @@ class KOTradingEnv(gym.Env):
                 self._record_trade(nxt, self.ko_level, "knockout", knockout=True)
             else:
                 price_n = float(s.close[nxt])
-                pnl = self.position * self.stake * self.leverage * (
+                pnl = self.position * self.remaining_stake * self.leverage * (
                     price_n / max(self.entry_price, 1e-9) - 1.0
                 )
-                self.position_value = max(0.0, self.stake + pnl)
+                self.position_value = max(0.0, self.remaining_stake + pnl)
                 dist = self._ko_distance(price_n)
                 dist_norm = float(np.clip(dist / max(self.initial_ko_dist, 1e-9), 0.0, 1.0))
                 proximity = 1.0 - dist_norm

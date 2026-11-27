@@ -495,6 +495,46 @@ häufig, dass der KO vor der Mitte erreicht wird. Für eine reine MR-Strategie
 wäre eher ein Ziel **näher als der KO** (Ratio < 1) oder ein Teilziel/Time-Stop
 sinnvoll; 2:1-R/R braucht eine deutlich höhere Trefferquote.
 
+## V5: Adaptive Ratio & Partial Target (A/B)
+
+V5 vergleicht zwei Varianten auf derselben Basis (1Hour, ml4t, OOT AAPL/NVDA/MSFT,
+nur Mean-Reversion, `--mr-only`):
+
+* **`v5_adaptive_1h`:** hebelabhängige Ratio-Schwellen
+  `--mr-ko-ratios 0.8,1.0,1.5,2.0` (22x/30x/60x/80x) plus
+  `--mr-ratio-vol-scaling 0.25` (höhere Hürde bei hoher ATR).
+* **`v5_partial_1h`:** gleiche Schwellen plus **Teilziel**:
+  50 % bei 1× initialer KO-Distanz realisieren, Rest zur Mitte/time-stop.
+  BC-Entry-Oversampling (`--bc-entry-frac 0.3`) verhindert den Flat-Kollaps
+  durch die seltenen validen Setups.
+
+| Run | Test Ret | Test DD | Test Trades | Test KOs | OOT Ret | OOT DD | OOT Trades | OOT KOs | OOT Partials | OOT Fees $ | OOT Net $ | Fee/Gross | Ø MR/KO | Schein |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `v5_adaptive_1h` | +0.55 % | 0.4 % | 3 | 2 | 0.00 % | 2.1 % | 9 | 4 | 0 | 140 | 0 | 1.00 | 4.02 | 60x:4 / 80x:5 |
+| `v5_partial_1h` | +0.35 % | 0.3 % | 2 | 1 | **+0.18 %** | 2.7 % | 9 | 4 | 4 | 180 | 53 | 0.77 | 4.10 | 60x:2 / 80x:7 |
+
+**OOT nach Ticker:**
+
+| Run | Ticker | Return | MaxDD | Trades | Win | KOs | Ø MR/KO | Net $ |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `v5_adaptive_1h` | AAPL | −1.27 % | 2.9 % | 6 | 50.0 % | 2 | 3.40 | −127 |
+| `v5_adaptive_1h` | MSFT | +1.27 % | 3.4 % | 3 | 33.3 % | 2 | 5.28 | +127 |
+| `v5_adaptive_1h` | NVDA | 0.00 % | 0.0 % | 0 | – | 0 | – | 0 |
+| `v5_partial_1h` | AAPL | +0.13 % | 3.0 % | 4 | 50.0 % | 1 | 3.82 | +13 |
+| `v5_partial_1h` | MSFT | +0.04 % | 2.8 % | 4 | 50.0 % | 3 | 4.60 | +4 |
+| `v5_partial_1h` | NVDA | +0.37 % | 2.2 % | 1 | 100.0 % | 0 | 3.25 | +37 |
+
+**Fazit:** Das Teilziel ist die bessere der beiden V5-Varianten: OOT +0.18 %
+statt 0.00 %, alle drei OOT-Ticker leicht positiv, 4 von 9 Trades mit
+Teilgewinn. Aber beide Varianten bleiben weit unter `v2_ml4t_final`
+(+5.37 % OOT). Die adaptiven Schwellen erzeugen sehr wenige Trades (9 OOT)
+mit hoher KO-Rate (44 %), weil das durchschnittliche MR/KO-Verhältnis mit
+~4.0 sehr hoch ist: Die Mitte ist weit entfernt, der KO oft näher. Das
+Teilziel federt das ab, löst aber das Grundproblem nicht. Nächster Schritt
+wäre ein **niedrigeres Ratio-Ziel für 60x/80x** oder ein **volatilitäts-
+abhängiger Teilziel-Multiple**; die Stichprobe ist für belastbare Aussagen
+noch zu klein.
+
 ## Evaluation
 
 ```bash
