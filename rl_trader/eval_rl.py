@@ -215,6 +215,7 @@ def ko_env_result(env: KOTradingEnv) -> dict:
         "cert_counts": list(env.cert_entry_counts),
         "size_counts": list(env.size_entry_counts),
         "avg_stake_usd": float(stakes.mean()) if len(stakes) else 0.0,
+        "filtered_entries": int(env.filtered_entries),
         "signals_total": int(env.total_signals),
         "signals_used": int(env.signals_used),
         "signals_ignored": int(env.signals_ignored),
@@ -429,6 +430,7 @@ def ko_aggregate(results: Sequence[dict]) -> dict:
         "cert_stats": cert_stats,
         "cert_counts": cert_counts,
         "size_counts": size_counts,
+        "filtered_entries": int(sum(r.get("filtered_entries", 0) for r in results)),
         "signals_total": int(sum(r["signals_total"] for r in results)),
         "signals_used": int(sum(r["signals_used"] for r in results)),
         "signals_ignored": int(sum(r["signals_ignored"] for r in results)),
@@ -718,7 +720,7 @@ def format_ko_table(split: str, aggs: Dict[str, dict], high_conf: float,
                     size_fractions: Sequence[float]) -> str:
     lines = [f"\n=== {split.upper()} (KO certificates) ==="]
     header = (f"{'method':<16} {'meanRet':>9} {'maxDD':>8} {'trades':>7} "
-              f"{'win%':>6} {'hold':>7} {'KOs':>5} {'KO%':>6} "
+              f"{'win%':>6} {'hold':>7} {'KOs':>5} {'KO%':>6} {'filt':>5} "
               f"{'fees$':>9} {'gross$':>10} {'net$':>10} {'fee/gross':>9} "
               f"{'sigUse%':>8} {'certPref':>18} {'sizePref':>12}")
     lines.append(header)
@@ -730,6 +732,7 @@ def format_ko_table(split: str, aggs: Dict[str, dict], high_conf: float,
             f"{name:<16} {a['mean_return']*100:>8.2f}% {a['mean_max_drawdown']*100:>7.2f}% "
             f"{a['trade_count']:>7d} {a['win_rate']*100:>5.1f}% {a['avg_holding_bars']:>6.1f} "
             f"{a['ko_count']:>5d} {a['ko_rate']*100:>5.1f}% "
+            f"{a.get('filtered_entries', 0):>5d} "
             f"{a['fees_usd']:>9.0f} {a['gross_pnl_usd']:>10.0f} {a['net_pnl_usd']:>10.0f} "
             f"{fg_s:>9} {signal_usage_rate(a)*100:>7.1f}% "
             f"{_cert_pref(a['cert_counts'], cert_leverages):>18} "
@@ -929,6 +932,9 @@ def main():
     avoid_ko_bonus = float(cfg.get("avoid_ko_bonus", 0.1))
     high_lev_threshold = float(cfg.get("high_lev_threshold", 60.0))
     high_lev_ko_penalty = float(cfg.get("high_lev_ko_penalty", 0.05))
+    fee_basis = float(cfg.get("fee_basis", 2.0))
+    min_edge_ratio = float(cfg.get("min_edge_ratio", 0.0))
+    min_ko_buffer_atr = float(cfg.get("min_ko_buffer_atr", 0.0))
     if args.timeframes is not None or args.exclude_timeframes is not None:
         timeframes = resolve_timeframes(args.timeframes, args.exclude_timeframes)
     else:
@@ -975,6 +981,9 @@ def main():
             avoid_ko_bonus=avoid_ko_bonus,
             high_lev_threshold=high_lev_threshold,
             high_lev_ko_penalty=high_lev_ko_penalty,
+            fee_basis=fee_basis,
+            min_edge_ratio=min_edge_ratio,
+            min_ko_buffer_atr=min_ko_buffer_atr,
             signal_bonus=signal_bonus, signal_conf_min=signal_conf_min,
         )
         methods = {
@@ -1063,6 +1072,9 @@ def main():
             "avoid_ko_bonus": avoid_ko_bonus,
             "high_lev_threshold": high_lev_threshold,
             "high_lev_ko_penalty": high_lev_ko_penalty,
+            "fee_basis": fee_basis,
+            "min_edge_ratio": min_edge_ratio,
+            "min_ko_buffer_atr": min_ko_buffer_atr,
         })
     else:
         report.update({

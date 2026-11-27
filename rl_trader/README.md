@@ -417,6 +417,51 @@ den RL-Agenten vollständig OOT. `NVDA` war für die Signalgeber im Training,
 aber **nicht** für den RL-Agenten; der NVDA-Test prüft also die RL-Politik auf
 einem für sie unbekannten Ticker, nicht die Signalgeber.
 
+## V3: Max-Edge & Kostenfilter
+
+Der V3-Lauf ergänzt die Verhältnis-Features um **Round-Trip-Kosten**
+(`--fee-basis 2.0`, also 20 $ bei 10 $/Order) und optionale harte
+Einstiegsfilter:
+
+```bash
+--min-edge-ratio 4.0      # Zielweg (Mitte/SMA) muss >= 4x Round-Trip-Fee sein
+--min-ko-buffer-atr 1.5   # initialer KO-Abstand muss >= 1.5 ATR sein
+```
+
+Blockierte Einstiege werden als `filtered_entries` gezählt. OOT umfasst hier
+**AAPL, NVDA und MSFT**.
+
+| Run | TF | Test Ret | Test DD | Test Trades | Test KOs | OOT Ret | OOT DD | OOT Trades | OOT KOs | OOT Fees $ | OOT Net $ | Fee/Gross | filtered |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `v3_max_edge_1h` | 1Hour | **+0.79 %** | 0.5 % | 5 | 0 | +0.99 % | 4.3 % | 24 | 3 | 450 | 298 | 0.60 | 0 |
+| `v3_max_edge_1h15m` | 1h+15m | +0.18 % | 0.9 % | 16 | 0 | −0.06 % | 3.6 % | 58 | 4 | 1.120 | −37 | 1.03 | 4 |
+| `v3_max_edge_1h15m_strict` | 1h+15m | −0.36 % | 0.7 % | 9 | 0 | −0.32 % | 2.2 % | 29 | 3 | 550 | −193 | 1.54 | 16 |
+
+**OOT nach Ticker (`v3_max_edge_1h`):**
+
+| Ticker | Return | MaxDD | Trades | Win | Ø Hold | KOs | Fees $ | Net $ |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| AAPL | +3.93 % | 0.7 % | 3 | 100.0 % | 8.7 | 0 | 60 | 393 |
+| NVDA | +0.37 % | 7.3 % | 13 | 61.5 % | 11.5 | 2 | 240 | 37 |
+| MSFT | −1.31 % | 4.9 % | 8 | 50.0 % | 10.5 | 1 | 150 | −131 |
+
+**OOT nach Timeframe (1h+15m-Varianten):**
+
+| Run | TF | Return | Trades | KOs | Fees $ | Net $ |
+|---|---|---:|---:|---:|---:|---:|
+| `v3_max_edge_1h15m` | 1Hour | −0.28 % | 41 | 4 | 780 | −83 |
+| `v3_max_edge_1h15m` | 15Min | +0.16 % | 17 | 0 | 340 | +47 |
+| `v3_max_edge_1h15m_strict` | 1Hour | −0.96 % | 23 | 3 | 430 | −289 |
+| `v3_max_edge_1h15m_strict` | 15Min | +0.32 % | 6 | 0 | 120 | +96 |
+
+**Fazit:** Der 1Hour-Fokus mit Kostenfilter liefert die beste
+Risiko-/Kosteneffizienz (Test +0.79 %, 0 KOs, OOT +0.99 %, Fee/Gross 0.60),
+bleibt aber unter dem Netto-Return von `v2_ml4t_final` (+5.37 % OOT). Der
+zusätzliche 15Min-Zweig und noch strengere Filter heben den Testsplit nicht
+nachhaltig und erhöhen die Streuung. Nächster sinnvoller Schritt: 1Hour-only
+mit weniger strengem Filter (2–3x Fee) und mehr 1Hour-Trainingsdaten; 15Min
+zunächst deprioritizieren.
+
 ## Evaluation
 
 ```bash

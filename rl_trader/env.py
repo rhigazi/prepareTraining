@@ -898,6 +898,9 @@ class KOTradingEnv(gym.Env):
         avoid_ko_bonus: float = 0.1,
         high_lev_threshold: float = 60.0,
         high_lev_ko_penalty: float = 0.05,
+        fee_basis: float = 2.0,
+        min_edge_ratio: float = 0.0,
+        min_ko_buffer_atr: float = 0.0,
         signal_bonus: float = 0.0,
         signal_conf_min: float = 0.55,
         seed: int = 0,
@@ -928,6 +931,9 @@ class KOTradingEnv(gym.Env):
         self.avoid_ko_bonus = float(avoid_ko_bonus)
         self.high_lev_threshold = float(high_lev_threshold)
         self.high_lev_ko_penalty = float(high_lev_ko_penalty)
+        self.fee_basis = float(fee_basis)
+        self.min_edge_ratio = float(min_edge_ratio)
+        self.min_ko_buffer_atr = float(min_ko_buffer_atr)
         self.rng = np.random.default_rng(seed)
 
         self.n_certs = len(self.cert_leverages)
@@ -976,6 +982,7 @@ class KOTradingEnv(gym.Env):
         self.signals_used = 0
         self.signals_ignored = 0
         self.standalone_trades = 0
+        self.filtered_entries = 0
         self.total_fees = 0.0
         self.gross_pnl = 0.0
         self.net_pnl = 0.0
@@ -1033,6 +1040,7 @@ class KOTradingEnv(gym.Env):
         self.signals_used = 0
         self.signals_ignored = 0
         self.standalone_trades = 0
+        self.filtered_entries = 0
         self.total_fees = 0.0
         self.gross_pnl = 0.0
         self.net_pnl = 0.0
@@ -1097,6 +1105,8 @@ class KOTradingEnv(gym.Env):
                 cert_idx, size_idx = 2, 0          # 60x, full stake
             else:
                 cert_idx, size_idx = min(1, self.n_certs - 1), 0
+            if not self.entry_edge_ok(self.idx, cert_idx, size_idx):
+                return 0
             return self.action_for_direction(signal, cert_idx=cert_idx, size_idx=size_idx)
         return 0
 
@@ -1128,6 +1138,31 @@ class KOTradingEnv(gym.Env):
         if self.position > 0:
             return max((price - self.ko_level) / max(price, 1e-9), 0.0)
         return max((self.ko_level - price) / max(price, 1e-9), 0.0)
+
+    def _entry_edge(self, idx: int, cert_idx: int, size_idx: int):
+        """Expected target move / round-trip fee and KO buffer in ATR."""
+        s = self.series
+        assert s is not None
+        price = float(s.close[idx])
+        atr = self._atr_at(idx)
+        stake = self.position_size * self.size_fractions[size_idx]
+        lev = self.cert_leverages[cert_idx]
+        mid = float(s.mid[idx])
+        spread = abs(float(s.sma38[idx] - s.sma80[idx]))
+        mid_room = abs(price - mid) * lev * stake / max(price, 1e-9)
+        sma_room = spread * lev * stake / max(price, 1e-9)
+        roundtrip_fee = max(self.trade_fee * self.fee_basis, 1e-9)
+        edge_fees = max(mid_room, sma_room) / roundtrip_fee
+        ko_dist = 1.0 / max(lev, 1e-9) + self.ko_buffer
+        ko_atr = (price * ko_dist) / max(atr, 1e-9)
+        return float(edge_fees), float(ko_atr)
+
+    def entry_edge_ok(self, idx: int, cert_idx: int, size_idx: int) -> bool:
+        """Strict cost/KO filter for new entries (0 thresholds disable it)."""
+        if self.min_edge_ratio <= 0.0 and self.min_ko_buffer_atr <= 0.0:
+            return True
+        edge_fees, ko_atr = self._entry_edge(idx, cert_idx, size_idx)
+        return edge_fees >= self.min_edge_ratio and ko_atr >= self.min_ko_buffer_atr
 
     def _unrealized(self, price: float) -> float:
         if self.position == 0 or self.entry_price <= 0:
@@ -1184,7 +1219,7 @@ class KOTradingEnv(gym.Env):
             ratio_stake = self.position_size
             ratio_lev = self.cert_leverages[min(1, self.n_certs - 1)]
             unreal_usd = 0.0
-        fee = max(self.trade_fee, 1e-9)
+        fee = max(self.trade_fee * self.fee_basis, 1e-9)
         atr_value_usd = ratio_stake * ratio_lev * (atr / max(price, 1e-9))
         atr_value_fees = float(np.clip(atr_value_usd / fee, 0.0, 10.0))
         mid_room_usd = abs(price - mid) * ratio_lev * ratio_stake / max(price, 1e-9)
@@ -1399,12 +1434,15 @@ class KOTradingEnv(gym.Env):
                 if self.position != 0:
                     self._close_position(idx, reason="close")
             elif kind == "entry":
-                same = (self.position == direction and self.cert_idx == cert_idx
-                        and self.size_idx == size_idx)
-                if not same:
-                    if self.position != 0:
-                        self._close_position(idx, reason="close")
-                    self._open_position(idx, direction, cert_idx, size_idx)
+                if not self.entry_edge_ok(idx, cert_idx, size_idx):
+                    self.filtered_entries += 1
+                else:
+                    same = (self.position == direction and self.cert_idx == cert_idx
+                            and self.size_idx == size_idx)
+                    if not same:
+                        if self.position != 0:
+                            self._close_position(idx, reason="close")
+                        self._open_position(idx, direction, cert_idx, size_idx)
             # "hold" does nothing
 
         # advance to t+1 and mark to market / check KO

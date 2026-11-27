@@ -381,6 +381,13 @@ def parse_args():
                    help="KO: leverage above which the KO-proximity penalty is scaled.")
     p.add_argument("--high-lev-ko-penalty", type=float, default=0.05,
                    help="KO: extra per-bar penalty for high leverage in the KO zone.")
+    p.add_argument("--fee-basis", type=float, default=2.0,
+                   help="KO: fee multiplier for cost/edge ratios (2 = round trip).")
+    p.add_argument("--min-edge-ratio", type=float, default=0.0,
+                   help="KO: block entries whose target move is below this multiple "
+                        "of the round-trip fee (0 disables).")
+    p.add_argument("--min-ko-buffer-atr", type=float, default=0.0,
+                   help="KO: block entries whose initial KO distance is below this ATR value.")
     p.add_argument("--reward-scale", type=float, default=100.0)
     p.add_argument("--dd-penalty", type=float, default=0.10)
     p.add_argument("--trade-penalty", type=float, default=0.01)
@@ -463,6 +470,9 @@ def main():
             avoid_ko_bonus=args.avoid_ko_bonus,
             high_lev_threshold=args.high_lev_threshold,
             high_lev_ko_penalty=args.high_lev_ko_penalty,
+            fee_basis=args.fee_basis,
+            min_edge_ratio=args.min_edge_ratio,
+            min_ko_buffer_atr=args.min_ko_buffer_atr,
             signal_bonus=args.signal_bonus,
             signal_conf_min=args.signal_conf_min,
         )
