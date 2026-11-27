@@ -75,6 +75,39 @@ Bei Verzeichnis-Input entstehen pro Datei `<stem>_signals.csv` plus
 `signals_all.csv`. Bei `--output *.csv` wird nur die kombinierte Datei
 geschrieben.
 
+## Batch: Rohdaten → markierte CSVs + PNGs (ein Befehl)
+
+```bash
+python3 run_batch_3models.py --input-dir ./raw_data --output-dir ./batch_output
+```
+
+Der Lauf verarbeitet jede Roh-CSV intern mit der zum Profil passenden
+Feature-Transformation, dem gespeicherten Scaler, dem MLP und Threshold/Cooldown.
+Es sind **keine** manuellen Zwischen-CSVs nötig; die Feature-Aufbereitung
+erfolgt im Speicher.
+
+Ausgabe pro Modell:
+
+```text
+batch_output/
+├── batch_run.log
+├── batch_summary.csv / .json
+├── ml4t_opt/
+│   ├── <stem>_marked.csv          # alle Rohspalten + prob_-1/0/+1,
+│   │                              # raw_pred, filtered_pred, extreme_point/label
+│   └── charts/<stem>_chart_*.png  # 400-Bar-Kacheln
+├── baseline_opt/  (gleiche Struktur)
+└── sma_auto_opt/  (gleiche Struktur)
+```
+
+Die Charts enthalten Close + High/Low-Band, SMA 38/80, Cross-Punkte,
+Segment-Referenzextreme, Modellmarker (−1/+1) und eine Kennzahlen-Box
+(RUN/FILE: Signale, Extras, Hit Bull/Bear, Val/OOT, Threshold/Cooldown, ATR-Q).
+
+Optionen: `--models ml4t baseline sma_auto`, `--chart-bars 400`,
+`--no-charts`, `--keep-work` (behält `_work/` mit Aggregaten; sonst wird der
+temporäre Arbeitsordner entfernt), `--pattern "*.csv"`.
+
 ## Regelmäßiges Re-Training
 
 ```bash

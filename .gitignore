@@ -11,6 +11,7 @@ tol3_test/
 runs/
 extremes_output*/
 predictions/
+batch_output/
 production_models/*/candidates/
 production_models/*/archive/
 production_models/_tmp/

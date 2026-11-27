@@ -645,7 +645,8 @@ def prepare_profile_data(cfg, raw_dir, out_dir, log):
 # --------------------------------------------------------------------------- #
 # Control chart
 # --------------------------------------------------------------------------- #
-def plot_control_chart(res, cfg, global_metrics, file_metrics, start, end, title, out_png):
+def plot_control_chart(res, cfg, global_metrics, file_metrics, start, end, title, out_png,
+                       context_label="OOT"):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -693,8 +694,15 @@ def plot_control_chart(res, cfg, global_metrics, file_metrics, start, end, title
     ax.legend(loc="upper left", fontsize=7, ncol=2, framealpha=0.85)
 
     g, f = global_metrics, file_metrics
+    pp = cfg.get("post_processing", {}) if isinstance(cfg, dict) else {}
+    thr = pp.get("threshold")
+    cd = pp.get("cooldown_bars")
+    model_line = ""
+    if thr is not None and cd is not None:
+        model_line = f" | thr {float(thr):.2f} cd {int(cd)}"
     box = (
-        f"OOT  sig {g['model_sigs']} | extra {g['extra']} ({g['extra_rate'] * 100:.1f}%)\n"
+        f"{context_label}  sig {g['model_sigs']} | extra {g['extra']} "
+        f"({g['extra_rate'] * 100:.1f}%){model_line}\n"
         f"Hit Bull {g['hits_bull']}/{g['hits_bull'] + g['misses_bull']} ({g['hit_rate_bull']:.2f})"
         f" | Hit Bear {g['hits_bear']}/{g['hits_bear'] + g['misses_bear']} ({g['hit_rate_bear']:.2f})\n"
         f"Val-F1 {g.get('val_f1', float('nan')):.3f} | OOT-F1 {g.get('oot_f1', float('nan')):.3f}"
