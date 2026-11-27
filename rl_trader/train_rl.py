@@ -101,7 +101,8 @@ class PPOAgent:
             _, value = self.model(x)
         return value.cpu().numpy()
 
-    def update(self, obs, actions, old_logp, rewards, dones, values) -> Dict[str, float]:
+    def update(self, obs, actions, old_logp, rewards, dones, values,
+               bc_obs=None, bc_actions=None, bc_coef: float = 0.0) -> Dict[str, float]:
         cfg = self.cfg
         T, N = rewards.shape
         adv = np.zeros((T, N), dtype=np.float32)
@@ -124,7 +125,14 @@ class PPOAgent:
         n = b_obs.shape[0]
         idx = np.arange(n)
         stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0,
-                 "approx_kl": 0.0, "updates": 0}
+                 "approx_kl": 0.0, "bc_loss": 0.0, "updates": 0}
+        if bc_obs is not None and bc_actions is not None and bc_coef > 0:
+            if not torch.is_tensor(bc_obs):
+                bc_obs = torch.as_tensor(bc_obs, dtype=torch.float32, device=self.device)
+            if not torch.is_tensor(bc_actions):
+                bc_actions = torch.as_tensor(bc_actions, dtype=torch.long, device=self.device)
+        else:
+            bc_obs, bc_actions = None, None
         stop = False
         for _ in range(cfg.ppo_epochs):
             np.random.shuffle(idx)
@@ -141,6 +149,12 @@ class PPOAgent:
                 policy_loss = torch.max(p_loss1, p_loss2).mean()
                 value_loss = 0.5 * ((value - b_returns[mb]) ** 2).mean()
                 loss = policy_loss + cfg.vf_coef * value_loss - cfg.ent_coef * entropy
+                bc_loss = torch.zeros((), device=self.device)
+                if bc_obs is not None:
+                    bidx = torch.randint(0, bc_obs.shape[0], (len(mb),), device=self.device)
+                    logits_bc, _ = self.model(bc_obs[bidx])
+                    bc_loss = nn.functional.cross_entropy(logits_bc, bc_actions[bidx])
+                    loss = loss + bc_coef * bc_loss
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -153,13 +167,14 @@ class PPOAgent:
                 stats["value_loss"] += float(value_loss.item())
                 stats["entropy"] += float(entropy.item())
                 stats["approx_kl"] += approx_kl
+                stats["bc_loss"] += float(bc_loss.item())
                 stats["updates"] += 1
                 if cfg.target_kl and approx_kl > 1.5 * cfg.target_kl:
                     stop = True
                     break
             if stop:
                 break
-        for k in ("policy_loss", "value_loss", "entropy", "approx_kl"):
+        for k in ("policy_loss", "value_loss", "entropy", "approx_kl", "bc_loss"):
             stats[k] /= max(stats["updates"], 1)
         return stats
 
@@ -309,6 +324,8 @@ def parse_args():
                    help="classic = bps-cost spot-like env; ko = USD knock-out certificate env.")
     p.add_argument("--timeframes", default=None,
                    help="Comma separated timeframe whitelist, e.g. 1Hour,15Min.")
+    p.add_argument("--oot-tickers", default="AAPL",
+                   help="Comma separated tickers fully held out for OOT, e.g. AAPL,NVDA.")
     p.add_argument("--exclude-timeframes", default=None,
                    help="Comma separated timeframe blacklist, e.g. 5Min.")
     p.add_argument("--iterations", type=int, default=60)
@@ -377,6 +394,9 @@ def parse_args():
     p.add_argument("--bc-epochs", type=int, default=15)
     p.add_argument("--bc-conf-min", type=float, default=0.60)
     p.add_argument("--bc-lr", type=float, default=1e-3)
+    p.add_argument("--bc-anchor", type=float, default=0.0,
+                   help="Auxiliary BC cross-entropy weight during PPO updates "
+                        "(keeps the rule policy from collapsing to flat; 0 disables).")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", default="cpu")
     return p.parse_args()
@@ -405,14 +425,17 @@ def main():
     log(f"data_root={args.data_root}")
 
     timeframes = resolve_timeframes(args.timeframes, args.exclude_timeframes)
-    log(f"timeframes={timeframes if timeframes is not None else 'all'}")
+    oot_tickers = tuple(v.strip() for v in args.oot_tickers.split(",") if v.strip())
+    log(f"timeframes={timeframes if timeframes is not None else 'all'} "
+        f"oot_tickers={oot_tickers}")
 
     t0 = time.time()
     series = build_series(args.data_root, profiles=profiles, timeframes=timeframes)
     log(f"Loaded {len(series)} raw series with signals for {profiles} ({time.time()-t0:.1f}s)")
 
     pools = build_pools(series, train_frac=args.train_frac, val_frac=args.val_frac,
-                        min_idx=args.min_idx, timeframes=timeframes)
+                        min_idx=args.min_idx, timeframes=timeframes,
+                        oot_tickers=oot_tickers)
     if not pools.train:
         raise RuntimeError("No training series found.")
     log(f"pools: train={len(pools.train)} series, val={len(pools.val)}, "
@@ -490,6 +513,11 @@ def main():
         log(f"BC dataset: {len(bc_act)} transitions | rule mean episode return {bc_ret:+.4f}")
         acc = behaviour_clone(agent, bc_obs, bc_act, args.bc_epochs, args.bc_lr, log=log)
         log(f"BC warm start finished (action accuracy {acc:.3f})")
+        bc_obs_t = torch.as_tensor(bc_obs, dtype=torch.float32, device=agent.device)
+        bc_act_t = torch.as_tensor(bc_act, dtype=torch.long, device=agent.device)
+        log(f"BC anchor coefficient: {args.bc_anchor}")
+    else:
+        bc_obs_t, bc_act_t = None, None
 
     history: List[Dict[str, float]] = []
     total_steps = 0
@@ -499,6 +527,7 @@ def main():
         stats = agent.update(
             data["obs"], data["actions"], data["logp"],
             data["rewards"], data["dones"], data["values"],
+            bc_obs=bc_obs_t, bc_actions=bc_act_t, bc_coef=args.bc_anchor,
         )
         total_steps += args.rollout * args.n_envs
         row = {
@@ -517,7 +546,7 @@ def main():
             f"ep_ret {row['mean_episode_return']:+.4f} | trades {row['mean_episode_trades']:.1f} | "
             f"rew {row['mean_step_reward']:+.4f} | "
             f"pi_loss {stats['policy_loss']:.4f} | v_loss {stats['value_loss']:.4f} | "
-            f"ent {stats['entropy']:.3f} | kl {stats['approx_kl']:.4f}"
+            f"bc {stats['bc_loss']:.4f} | ent {stats['entropy']:.3f} | kl {stats['approx_kl']:.4f}"
         )
 
     checkpoint = {
@@ -528,6 +557,7 @@ def main():
         "profiles": profiles,
         "profile_arg": args.profile,
         "timeframes": timeframes,
+        "oot_tickers": list(oot_tickers),
         "config": vars(args),
         "history": history,
     }
@@ -592,6 +622,7 @@ def main():
         "profile_arg": args.profile,
         "profiles": profiles,
         "timeframes": timeframes,
+        "oot_tickers": list(oot_tickers),
         "obs_dim": obs_dim,
         "n_actions": n_actions,
         "iterations": args.iterations,

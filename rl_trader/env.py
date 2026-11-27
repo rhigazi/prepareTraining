@@ -495,14 +495,16 @@ def build_pools(series: Dict[Tuple[str, str], SeriesData],
                 train_frac: float = 0.70, val_frac: float = 0.15,
                 min_idx: int = 100,
                 timeframes: Optional[Sequence[str]] = None,
-                exclude_timeframes: Optional[Sequence[str]] = None) -> SplitPools:
-    """Per-file chronological split; AAPL is fully held out as OOT.
+                exclude_timeframes: Optional[Sequence[str]] = None,
+                oot_tickers: Sequence[str] = ("AAPL",)) -> SplitPools:
+    """Per-file chronological split; ``oot_tickers`` are fully held out.
 
     Optional timeframe filters make the split self-contained even if the caller
     passes an unfiltered ``series`` dict.
     """
     tf_set = set(timeframes) if timeframes else None
     exc_set = set(exclude_timeframes) if exclude_timeframes else set()
+    oot_set = set(oot_tickers) if oot_tickers else {"AAPL"}
     pools = SplitPools(train=[], val=[], test=[], oot=[])
     for (ticker, _tf), s in series.items():
         if tf_set is not None and _tf not in tf_set:
@@ -516,7 +518,7 @@ def build_pools(series: Dict[Tuple[str, str], SeriesData],
         val_end = max(train_end + 10, int(n * (train_frac + val_frac)))
         val_end = min(val_end, n - 1)
         train_end = min(train_end, val_end - 1)
-        if ticker == "AAPL":
+        if ticker in oot_set:
             pools.oot.append((s, min_idx, n - 1))
         else:
             pools.train.append((s, min_idx, train_end))
@@ -841,7 +843,7 @@ class TradingEnv(gym.Env):
         return info
 
 
-KO_OBS_DIM = 28  # account + mean-reversion/SMA + 4-slot certificate palette
+KO_OBS_DIM = 34  # account + mean-reversion/SMA + fee/ratio block + 4-slot certificate palette
 MAX_CERTS_STATE = 4
 
 
@@ -1174,6 +1176,25 @@ class KOTradingEnv(gym.Env):
         spread_change = float(np.sign(spread - prev_spread))
         sma_cross = float(s.sma_cross[idx])
 
+        if self.position != 0:
+            ratio_stake = self.stake
+            ratio_lev = self.leverage
+            unreal_usd = self._unrealized(price)
+        else:
+            ratio_stake = self.position_size
+            ratio_lev = self.cert_leverages[min(1, self.n_certs - 1)]
+            unreal_usd = 0.0
+        fee = max(self.trade_fee, 1e-9)
+        atr_value_usd = ratio_stake * ratio_lev * (atr / max(price, 1e-9))
+        atr_value_fees = float(np.clip(atr_value_usd / fee, 0.0, 10.0))
+        mid_room_usd = abs(price - mid) * ratio_lev * ratio_stake / max(price, 1e-9)
+        mid_room_fees = float(np.clip(mid_room_usd / fee, 0.0, 20.0))
+        sma_room_usd = abs(spread) * ratio_lev * ratio_stake / max(price, 1e-9)
+        sma_room_fees = float(np.clip(sma_room_usd / fee, 0.0, 20.0))
+        pnl_to_fee = float(np.clip(unreal_usd / fee, -10.0, 10.0))
+        fee_burden = float(np.clip(self.total_fees / max(self.initial_cash, 1e-9), 0.0, 1.0))
+        trade_count_norm = float(np.clip(len(self.trade_log) / 50.0, 0.0, 1.0))
+
         cert_block = np.zeros(MAX_CERTS_STATE * 3, dtype=np.float32)
         for i, lev in enumerate(self.cert_leverages[:MAX_CERTS_STATE]):
             dist_pct = 1.0 / max(lev, 1e-9) + self.ko_buffer
@@ -1199,6 +1220,12 @@ class KOTradingEnv(gym.Env):
             spread_norm,
             spread_change,
             sma_cross,
+            fee_burden,
+            trade_count_norm,
+            pnl_to_fee,
+            atr_value_fees,
+            mid_room_fees,
+            sma_room_fees,
             *cert_block.tolist(),
         ], dtype=np.float32)
         return np.concatenate(parts + [market, ko_block]).astype(np.float32)

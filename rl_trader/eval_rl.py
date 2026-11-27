@@ -310,6 +310,13 @@ def aggregate_by_timeframe(results: Sequence[dict]) -> Dict[str, dict]:
     return {tf: aggregate(rs) for tf, rs in sorted(groups.items())}
 
 
+def aggregate_by_ticker(results: Sequence[dict]) -> Dict[str, dict]:
+    groups: Dict[str, List[dict]] = {}
+    for r in results:
+        groups.setdefault(r["ticker"], []).append(r)
+    return {tk: aggregate(rs) for tk, rs in sorted(groups.items())}
+
+
 def ko_aggregate(results: Sequence[dict]) -> dict:
     if not results:
         return {}
@@ -437,6 +444,13 @@ def ko_aggregate_by_timeframe(results: Sequence[dict]) -> Dict[str, dict]:
     return {tf: ko_aggregate(rs) for tf, rs in sorted(groups.items())}
 
 
+def ko_aggregate_by_ticker(results: Sequence[dict]) -> Dict[str, dict]:
+    groups: Dict[str, List[dict]] = {}
+    for r in results:
+        groups.setdefault(r["ticker"], []).append(r)
+    return {tk: ko_aggregate(rs) for tk, rs in sorted(groups.items())}
+
+
 def _cert_pref(counts: Sequence[int], leverages: Sequence[float]) -> str:
     if not counts:
         return "-"
@@ -484,6 +498,42 @@ def write_ko_by_timeframe_csv(path: str, split: str,
             for tf, agg in tf_map.items():
                 row = {k: agg.get(k) for k in fields if k not in ("split", "method", "timeframe")}
                 row.update(split=split, method=method, timeframe=tf)
+                w.writerow(row)
+
+
+def write_by_ticker_csv(path: str, split: str,
+                        by_tk: Dict[str, Dict[str, dict]]):
+    fields = ["split", "method", "ticker", "series_count", "mean_return",
+              "median_return", "worst_return", "mean_max_drawdown", "mean_sharpe",
+              "trade_count", "win_rate", "avg_holding_bars", "avg_trade_return",
+              "signals_total", "signals_used", "signals_ignored", "standalone_trades"]
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        for method, tk_map in by_tk.items():
+            for tk, agg in tk_map.items():
+                row = {k: agg.get(k) for k in fields if k not in ("split", "method", "ticker")}
+                row.update(split=split, method=method, ticker=tk)
+                w.writerow(row)
+
+
+def write_ko_by_ticker_csv(path: str, split: str,
+                           by_tk: Dict[str, Dict[str, dict]]):
+    fields = ["split", "method", "ticker", "series_count", "mean_return",
+              "median_return", "worst_return", "mean_max_drawdown", "mean_sharpe",
+              "trade_count", "win_rate", "avg_holding_bars", "avg_trade_usd",
+              "avg_stake_usd", "gross_pnl_usd", "fees_usd", "net_pnl_usd",
+              "fee_to_gross", "ko_count", "ko_rate", "close_count", "sma_cross_count",
+              "mean_revert_count", "max_hold_count", "avg_holding_close",
+              "avg_holding_ko", "avg_holding_target", "signals_total", "signals_used",
+              "signals_ignored", "standalone_trades"]
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        for method, tk_map in by_tk.items():
+            for tk, agg in tk_map.items():
+                row = {k: agg.get(k) for k in fields if k not in ("split", "method", "ticker")}
+                row.update(split=split, method=method, ticker=tk)
                 w.writerow(row)
 
 
@@ -743,6 +793,45 @@ def format_ko_cert_table(split: str, aggs: Dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
+def format_ticker_table(split: str, by_tk: Dict[str, Dict[str, dict]],
+                        high_conf: float) -> str:
+    lines = [f"\n--- {split.upper()} by ticker ---"]
+    header = (f"{'ticker':<7} {'method':<16} {'meanRet':>9} {'maxDD':>8} {'trades':>7} "
+              f"{'win%':>6} {'hold':>7} {'sigUse%':>8}")
+    lines.append(header)
+    for tk, method_map in by_tk.items():
+        for method, a in method_map.items():
+            name = method if method != "high_conf" else f"high_conf>={high_conf:.2f}"
+            lines.append(
+                f"{tk:<7} {name:<16} {a['mean_return']*100:>8.2f}% "
+                f"{a['mean_max_drawdown']*100:>7.2f}% {a['trade_count']:>7d} "
+                f"{a['win_rate']*100:>5.1f}% {a['avg_holding_bars']:>6.1f} "
+                f"{signal_usage_rate(a)*100:>7.1f}%"
+            )
+    return "\n".join(lines)
+
+
+def format_ko_ticker_table(split: str, by_tk: Dict[str, Dict[str, dict]],
+                           high_conf: float) -> str:
+    lines = [f"\n--- {split.upper()} by ticker (KO) ---"]
+    header = (f"{'ticker':<7} {'method':<16} {'meanRet':>9} {'maxDD':>8} {'trades':>7} "
+              f"{'win%':>6} {'hold':>7} {'KOs':>5} {'KO%':>6} "
+              f"{'fees$':>8} {'net$':>9} {'sigUse%':>8}")
+    lines.append(header)
+    for tk, method_map in by_tk.items():
+        for method, a in method_map.items():
+            name = method if method != "high_conf" else f"high_conf>={high_conf:.2f}"
+            lines.append(
+                f"{tk:<7} {name:<16} {a['mean_return']*100:>8.2f}% "
+                f"{a['mean_max_drawdown']*100:>7.2f}% {a['trade_count']:>7d} "
+                f"{a['win_rate']*100:>5.1f}% {a['avg_holding_bars']:>6.1f} "
+                f"{a['ko_count']:>5d} {a['ko_rate']*100:>5.1f}% "
+                f"{a['fees_usd']:>8.0f} {a['net_pnl_usd']:>9.0f} "
+                f"{signal_usage_rate(a)*100:>7.1f}%"
+            )
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -756,6 +845,8 @@ def parse_args():
                    help="Override timeframe whitelist (default: checkpoint).")
     p.add_argument("--exclude-timeframes", default=None,
                    help="Exclude timeframes (default: checkpoint).")
+    p.add_argument("--oot-tickers", default=None,
+                   help="Override OOT tickers, comma separated (default: checkpoint).")
     p.add_argument("--splits", default="val,test,oot",
                    help="Comma separated subset of val,test,oot.")
     p.add_argument("--high-conf", type=float, default=0.60)
@@ -842,11 +933,15 @@ def main():
         timeframes = resolve_timeframes(args.timeframes, args.exclude_timeframes)
     else:
         timeframes = ckpt.get("timeframes")
+    if args.oot_tickers is not None:
+        oot_tickers = tuple(v.strip() for v in args.oot_tickers.split(",") if v.strip())
+    else:
+        oot_tickers = tuple(ckpt.get("oot_tickers", ["AAPL"]))
 
     log(f"run_dir={run_dir}")
     log(f"env={env_type} profiles={profiles} "
         f"timeframes={timeframes if timeframes is not None else 'all'} "
-        f"high_conf={args.high_conf}")
+        f"oot_tickers={oot_tickers} high_conf={args.high_conf}")
     if env_type == "ko":
         log(f"KO: fee=${trade_fee:.2f}/order stake=${position_size:.0f} "
             f"cash=${initial_cash:.0f} certs={list(cert_leverages)} "
@@ -857,7 +952,7 @@ def main():
     t0 = time.time()
     series = build_series(args.data_root, profiles=profiles, timeframes=timeframes)
     log(f"Loaded {len(series)} series ({time.time()-t0:.1f}s)")
-    pools = build_pools(series, timeframes=timeframes)
+    pools = build_pools(series, timeframes=timeframes, oot_tickers=oot_tickers)
     split_map = {"val": pools.val, "test": pools.test, "oot": pools.oot}
     splits = [s.strip() for s in args.splits.split(",") if s.strip()]
     for s in splits:
@@ -891,13 +986,17 @@ def main():
         run_fn = run_ko_episode
         agg_fn = ko_aggregate
         agg_tf_fn = ko_aggregate_by_timeframe
+        agg_tk_fn = ko_aggregate_by_ticker
         write_ps = write_ko_per_series_csv
         write_tr = write_ko_trades_csv
         write_tf = write_ko_by_timeframe_csv
+        write_tk = write_ko_by_ticker_csv
         format_fn = lambda split, aggs: format_ko_table(  # noqa: E731
             split, aggs, args.high_conf, cert_leverages, size_fractions)
         format_tf_fn = lambda split, by_tf: format_ko_timeframe_table(  # noqa: E731
             split, by_tf, args.high_conf, cert_leverages, size_fractions)
+        format_tk_fn = lambda split, by_tk: format_ko_ticker_table(  # noqa: E731
+            split, by_tk, args.high_conf)
     else:
         env_cls = TradingEnv
         env_kwargs = dict(episode_len=None, random_start=False, cost_bps=cost_bps,
@@ -913,12 +1012,16 @@ def main():
         run_fn = run_episode
         agg_fn = aggregate
         agg_tf_fn = aggregate_by_timeframe
+        agg_tk_fn = aggregate_by_ticker
         write_ps = write_per_series_csv
         write_tr = write_trades_csv
         write_tf = write_by_timeframe_csv
+        write_tk = write_by_ticker_csv
         format_fn = lambda split, aggs: format_table(split, aggs, args.high_conf)  # noqa: E731
         format_tf_fn = lambda split, by_tf: format_timeframe_table(  # noqa: E731
             split, by_tf, args.high_conf)
+        format_tk_fn = lambda split, by_tk: format_ticker_table(  # noqa: E731
+            split, by_tk, args.high_conf)
 
     # Guard against evaluating a legacy checkpoint with a changed state layout.
     first_pool = next((split_map[s] for s in splits if split_map.get(s)), None)
@@ -938,6 +1041,7 @@ def main():
         "env_type": env_type,
         "profiles": profiles,
         "timeframes": timeframes,
+        "oot_tickers": list(oot_tickers),
         "high_conf": args.high_conf,
         "splits": {},
     }
@@ -987,14 +1091,19 @@ def main():
 
         aggs = {m: agg_fn(r) for m, r in split_results.items()}
         by_tf = {m: agg_tf_fn(r) for m, r in split_results.items()}
+        by_tk = {m: agg_tk_fn(r) for m, r in split_results.items()}
         report["splits"][split] = {
             "aggregate": aggs,
             "by_timeframe": by_tf,
+            "by_ticker": by_tk,
             "series_count": len(pool),
         }
         write_tf(os.path.join(out_dir, f"by_timeframe_{split}.csv"), split, by_tf)
+        write_tk(os.path.join(out_dir, f"by_ticker_{split}.csv"), split, by_tk)
         log(format_fn(split, aggs))
         log(format_tf_fn(split, by_tf))
+        if split == "oot" or len(by_tk) > 1:
+            log(format_tk_fn(split, by_tk))
         if env_type == "ko":
             log(format_ko_exit_table(split, aggs))
             log(format_ko_cert_table(split, aggs))
@@ -1009,6 +1118,7 @@ def main():
     md.append(f"- Environment: `{env_type}`")
     md.append(f"- Profiles: `{', '.join(profiles)}`")
     md.append(f"- Timeframes: `{timeframes if timeframes is not None else 'all'}`")
+    md.append(f"- OOT tickers: `{', '.join(oot_tickers)}`")
     if env_type == "ko":
         md.append(f"- KO: fee ${trade_fee:.2f}/order, stake ${position_size:.0f}, "
                   f"cash ${initial_cash:.0f}, certs {list(cert_leverages)}, "
@@ -1027,6 +1137,11 @@ def main():
         md.append(format_tf_fn(split, report["splits"][split]["by_timeframe"]))
         md.append("```")
         md.append("")
+        if split == "oot" or len(report["splits"][split]["by_ticker"]) > 1:
+            md.append("```")
+            md.append(format_tk_fn(split, report["splits"][split]["by_ticker"]))
+            md.append("```")
+            md.append("")
         if env_type == "ko":
             aggs = report["splits"][split]["aggregate"]
             md.append("```")

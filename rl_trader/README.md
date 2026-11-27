@@ -347,6 +347,71 @@ bevorzugt bei niedriger Volatilität den 80x-Schein mit halber 100-$-Größe
 High-Confidence-Baselines (OOT −17.82 % / −19.55 %) und hält den Drawdown
 mit 4.7 % klein. Die 10-$-Gebühr bleibt der dominierende Kostenfaktor.
 
+## V2: Verhältnis-Features & Multi-Ticker-OOT
+
+Der KO-State enthält zusätzlich explizite **Verhältnisgrößen**:
+
+* `fee_burden` = kumulierte Gebühren / Startkapital,
+* `trade_count_norm` = Anzahl Trades / 50,
+* `pnl_to_fee` = unrealisierter PnL / 10-$-Gebühr,
+* `atr_value_fees` = USD-Wert einer 1-ATR-Bewegung / 10-$-Gebühr,
+* `mid_room_fees` = potenzieller USD-Weg zur Mitte / 10-$-Gebühr,
+* `sma_room_fees` = potenzieller USD-Weg bis zum SMA-Spread / 10-$-Gebühr.
+
+Damit kann der Agent abschätzen, ob der Restweg zum Ziel die Ordergebühr
+überhaupt rechtfertigt. Der OOT-Holdout ist über `--oot-tickers` frei wählbar:
+
+```bash
+--oot-tickers AAPL,NVDA
+```
+
+`eval_rl.py` schreibt zusätzlich `by_ticker_<split>.csv` und zeigt im Report
+eine OOT-Tabelle pro Ticker (z. B. AAPL vs. NVDA) sowie weiterhin die
+Timeframe-Tabelle (1Hour vs. 15Min).
+
+### V2-Ergebnisse (OOT: AAPL + NVDA)
+
+Die finalen V2-Läufe nutzen `--bc-anchor 0.5`: eine kleine BC-Kreuzentropie
+während der PPO-Updates verhindert den wiederholten Flat-Kollaps bei 10 $
+Gebühren, ohne die Politik vollständig auf die Regel zu fixieren.
+
+| Run | Split | Return | MaxDD | Trades | Win | Ø Hold | KOs | KO-Rate | Fees $ | Gross $ | Net $ | Fee/Gross | Schein-Verteilung |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `v2_ml4t_final` | Test | +0.15 % | 1.7 % | 41 | 51.2 % | 13.0 | 3 | 7.3 % | 790 | 1.000 | 210 | 0.79 | 30x:35 / 60x:6 |
+| `v2_ml4t_final` | OOT | **+5.37 %** | 4.0 % | 66 | 59.1 % | 13.0 | 4 | 6.1 % | 1.280 | 3.428 | **2.148** | 0.37 | 30x:62 / 60x:4 |
+| `v2_all3_final` | Test | −0.42 % | 3.6 % | 181 | 48.1 % | 10.3 | 9 | 5.0 % | 3.530 | 2.944 | −586 | 1.20 | 22x:4 / 30x:89 / 80x:88 |
+| `v2_all3_final` | OOT | −4.54 % | 10.3 % | 321 | 53.6 % | 10.3 | 26 | 8.1 % | 6.160 | 4.345 | −1.815 | 1.42 | 22x:17 / 30x:179 / 80x:125 |
+
+**OOT nach Ticker:**
+
+| Run | Ticker | Return | MaxDD | Trades | Win | Ø Hold | KOs | Fees $ | Net $ |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `v2_ml4t_final` | AAPL | +5.44 % | 2.5 % | 26 | 61.5 % | 11.3 | 1 | 510 | 1.088 |
+| `v2_ml4t_final` | NVDA | +5.30 % | 5.4 % | 40 | 57.5 % | 14.1 | 3 | 770 | 1.060 |
+| `v2_all3_final` | AAPL | −3.05 % | 7.2 % | 156 | 53.2 % | 10.5 | 7 | 3.050 | −609 |
+| `v2_all3_final` | NVDA | −6.03 % | 13.4 % | 165 | 53.9 % | 10.1 | 19 | 3.110 | −1.206 |
+
+**OOT nach Timeframe:**
+
+| Run | TF | Return | MaxDD | Trades | Win | Ø Hold | KOs | Fees $ | Net $ |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `v2_ml4t_final` | 1Hour | **+12.42 %** | 4.8 % | 41 | 70.7 % | 13.3 | 4 | 780 | 2.483 |
+| `v2_ml4t_final` | 15Min | −1.67 % | 3.1 % | 25 | 40.0 % | 12.4 | 0 | 500 | −335 |
+| `v2_all3_final` | 1Hour | −9.26 % | 14.0 % | 166 | 50.6 % | 10.2 | 18 | 3.140 | −1.853 |
+| `v2_all3_final` | 15Min | +0.19 % | 6.6 % | 155 | 56.8 % | 10.3 | 8 | 3.020 | +38 |
+
+**Exit-Diagnostik (OOT):**
+
+| Run | Close | KO | SMA-Cross | Mean-Rev | Max-Hold | Ø Hold Close | Ø Hold KO | Ø Hold Ziel |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `v2_ml4t_final` | 2 | 4 | 14 | 34 | 12 | 9.5 | 11.0 | 13.2 |
+| `v2_all3_final` | 45 | 26 | 48 | 186 | 15 | 7.9 | 13.8 | 10.4 |
+
+**BC-Sweep (ml4t, 50 Iterationen):** BC 0 und 5.000 kollabieren auf flat
+(0 Trades); 10.000 ist das minimale Warmstart-Niveau, 20.000 handelt aktiver
+(65 OOT-Trades, +4.66 % OOT) und nutzt mehr 60x/80x. Die finalen Läufe nutzen
+10k (ml4t) bzw. 20k (all3) plus BC-Anker.
+
 ## Evaluation
 
 ```bash
