@@ -535,6 +535,39 @@ wäre ein **niedrigeres Ratio-Ziel für 60x/80x** oder ein **volatilitäts-
 abhängiger Teilziel-Multiple**; die Stichprobe ist für belastbare Aussagen
 noch zu klein.
 
+## V5b: ATR-Teilziel vs. v2 (1Hour, 3 OOT)
+
+`v5_partial_atr_1h` nutzt ein ATR-abhängiges Teilziel (hohe ATR-Perzentile:
+0.75× KO-Distanz, ruhige Lage: 1.0×), lockerere Ratio-Schwellen
+(`0.8/1.0/1.2/1.5` für 22x/30x/60x/80x) und BC-Entry-Oversampling.
+Zum fairen Vergleich wurde `v2_ml4t_final` mit dem Legacy-Obs-Layout
+(34er KO-State) auf **1Hour + OOT AAPL/NVDA/MSFT** neu ausgewertet.
+
+| Run | Test Ret | Test DD | Test Trades | Test KOs | OOT Ret | OOT DD | OOT Trades | OOT KOs | Partials | OOT Fees $ | OOT Net $ | Fee/Gross | Schein |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `v5_partial_atr_1h` | +0.21 % | 0.5 % | 4 | 2 | **−4.66 %** | 5.9 % | 23 | 10 | 8 | 440 | −1.397 | 0.46 | 60x:2 / 80x:21 |
+| `v2_ml4t_final` (Legacy, 1h) | −0.20 % | 2.5 % | 23 | 3 | **+6.80 %** | 6.0 % | 60 | 9 | 0 | 1.110 | **+2.039** | 0.35 | 30x:60 |
+
+**OOT nach Ticker:**
+
+| Run | Ticker | Return | MaxDD | Trades | Win | KOs | Partials | Fees $ | Net $ |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `v5_partial_atr_1h` | AAPL | −4.35 % | 5.1 % | 7 | 28.6 % | 1 | 2 | 150 | −435 |
+| `v5_partial_atr_1h` | MSFT | −2.38 % | 5.2 % | 8 | 25.0 % | 4 | 4 | 160 | −238 |
+| `v5_partial_atr_1h` | NVDA | −7.24 % | 7.3 % | 8 | 12.5 % | 5 | 2 | 130 | −724 |
+| `v2_ml4t_final` | AAPL | +13.05 % | 2.3 % | 16 | 87.5 % | 1 | 0 | 310 | 1.305 |
+| `v2_ml4t_final` | MSFT | −4.45 % | 8.5 % | 19 | 47.4 % | 5 | 0 | 330 | −445 |
+| `v2_ml4t_final` | NVDA | +11.79 % | 7.3 % | 25 | 60.0 % | 3 | 0 | 470 | 1.179 |
+
+**Fazit:** Das ATR-abhängige Teilziel und die gelockerten Ratio-Schwellen
+haben die Erwartung **nicht** erfüllt. `v5_partial_atr_1h` handelt mehr
+(23 statt 9 OOT-Trades), landet aber fast ausschließlich bei 80x (21/23) und
+hat eine KO-Rate von **43.5 %** (10/23); alle drei OOT-Ticker sind negativ.
+Die Teilziele (8 Partials) federn das nicht ab. `v2_ml4t_final` bleibt mit
+**+6.80 % OOT, Netto +2.039 $, 15 % KO-Rate und 30x/200 $** deutlich
+überlegen. Die reine MR-/Ratio-Richtung ist damit für 1Hour nicht
+konkurrenzfähig; der Hebel 80x ist auf diesen Signalen zu KO-anfällig.
+
 ## Evaluation
 
 ```bash

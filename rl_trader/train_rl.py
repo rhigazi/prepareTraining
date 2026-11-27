@@ -404,6 +404,18 @@ def parse_args():
                    help="KO: fraction of the position closed at the partial target.")
     p.add_argument("--partial-ko-multiple", type=float, default=1.0,
                    help="KO: partial target distance as a multiple of the initial KO distance.")
+    p.add_argument("--partial-atr", action="store_true",
+                   help="KO: make the partial target multiple ATR/volatility dependent.")
+    p.add_argument("--partial-multiple-low", type=float, default=1.0,
+                   help="KO: partial multiple in low-volatility regimes.")
+    p.add_argument("--partial-multiple-high", type=float, default=0.75,
+                   help="KO: partial multiple in high-volatility regimes.")
+    p.add_argument("--partial-atr-percentile", type=float, default=0.7,
+                   help="KO: ATR percentile threshold for the high-volatility regime.")
+    p.add_argument("--partial-atr-window", type=int, default=100,
+                   help="KO: trailing window for the ATR percentile.")
+    p.add_argument("--partial-min-net-usd", type=float, default=0.0,
+                   help="KO: only take a partial profit if its net after the fee is at least this.")
     p.add_argument("--reward-scale", type=float, default=100.0)
     p.add_argument("--dd-penalty", type=float, default=0.10)
     p.add_argument("--trade-penalty", type=float, default=0.01)
@@ -502,6 +514,12 @@ def main():
             partial_target=args.partial_target,
             partial_fraction=args.partial_fraction,
             partial_ko_multiple=args.partial_ko_multiple,
+            partial_atr=args.partial_atr,
+            partial_multiple_low=args.partial_multiple_low,
+            partial_multiple_high=args.partial_multiple_high,
+            partial_atr_percentile=args.partial_atr_percentile,
+            partial_atr_window=args.partial_atr_window,
+            partial_min_net_usd=args.partial_min_net_usd,
             signal_bonus=args.signal_bonus,
             signal_conf_min=args.signal_conf_min,
         )

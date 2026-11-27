@@ -628,6 +628,7 @@ def write_ko_trades_csv(path: str, results: Sequence[dict]):
               "partial_holding_bars",
               "entry_signal", "entry_had_signal", "entry_mid", "mid_target_active",
               "entry_mr_ratio", "entry_expected_net_fees",
+              "entry_atr_pct", "entry_partial_multiple",
               "max_proximity", "min_ko_dist_atr"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -899,6 +900,10 @@ def parse_args():
     p.add_argument("--ko-penalty", type=float, default=None)
     p.add_argument("--ko-event-penalty", type=float, default=None)
     p.add_argument("--reward-scale-usd", type=float, default=None)
+    p.add_argument("--fee-basis", type=float, default=None,
+                   help="Override fee multiplier for ratio features (2=round trip).")
+    p.add_argument("--legacy-obs", action="store_true",
+                   help="Use the legacy KO observation layout (for v2 checkpoints).")
     p.add_argument("--device", default="cpu")
     p.add_argument("--out-dir", default=None)
     return p.parse_args()
@@ -976,6 +981,15 @@ def main():
     partial_target = bool(cfg.get("partial_target", False))
     partial_fraction = float(cfg.get("partial_fraction", 0.5))
     partial_ko_multiple = float(cfg.get("partial_ko_multiple", 1.0))
+    partial_atr = bool(cfg.get("partial_atr", False))
+    partial_multiple_low = float(cfg.get("partial_multiple_low", 1.0))
+    partial_multiple_high = float(cfg.get("partial_multiple_high", 0.75))
+    partial_atr_percentile = float(cfg.get("partial_atr_percentile", 0.7))
+    partial_atr_window = int(cfg.get("partial_atr_window", 100))
+    partial_min_net_usd = float(cfg.get("partial_min_net_usd", 0.0))
+    legacy_obs = bool(args.legacy_obs) or bool(cfg.get("legacy_obs_layout", False))
+    if args.fee_basis is not None:
+        fee_basis = float(args.fee_basis)
     if args.timeframes is not None or args.exclude_timeframes is not None:
         timeframes = resolve_timeframes(args.timeframes, args.exclude_timeframes)
     else:
@@ -1035,6 +1049,13 @@ def main():
             partial_target=partial_target,
             partial_fraction=partial_fraction,
             partial_ko_multiple=partial_ko_multiple,
+            partial_atr=partial_atr,
+            partial_multiple_low=partial_multiple_low,
+            partial_multiple_high=partial_multiple_high,
+            partial_atr_percentile=partial_atr_percentile,
+            partial_atr_window=partial_atr_window,
+            partial_min_net_usd=partial_min_net_usd,
+            legacy_obs_layout=legacy_obs,
             signal_bonus=signal_bonus, signal_conf_min=signal_conf_min,
         )
         methods = {
@@ -1134,6 +1155,13 @@ def main():
             "partial_target": partial_target,
             "partial_fraction": partial_fraction,
             "partial_ko_multiple": partial_ko_multiple,
+            "partial_atr": partial_atr,
+            "partial_multiple_low": partial_multiple_low,
+            "partial_multiple_high": partial_multiple_high,
+            "partial_atr_percentile": partial_atr_percentile,
+            "partial_atr_window": partial_atr_window,
+            "partial_min_net_usd": partial_min_net_usd,
+            "legacy_obs_layout": legacy_obs,
         })
     else:
         report.update({

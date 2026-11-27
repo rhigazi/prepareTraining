@@ -843,7 +843,7 @@ class TradingEnv(gym.Env):
         return info
 
 
-KO_OBS_DIM = 43  # account + partial flag + mid/SMA + fee ratios + 4-slot certificate palette (5 values/cert)
+KO_OBS_DIM = 45  # account + partial/ATR + mid/SMA + fee ratios + 4-slot certificate palette (5 values/cert)
 MAX_CERTS_STATE = 4
 
 
@@ -909,6 +909,13 @@ class KOTradingEnv(gym.Env):
         partial_target: bool = False,
         partial_fraction: float = 0.5,
         partial_ko_multiple: float = 1.0,
+        partial_atr: bool = False,
+        partial_multiple_low: float = 1.0,
+        partial_multiple_high: float = 0.75,
+        partial_atr_percentile: float = 0.7,
+        partial_atr_window: int = 100,
+        partial_min_net_usd: float = 0.0,
+        legacy_obs_layout: bool = False,
         signal_bonus: float = 0.0,
         signal_conf_min: float = 0.55,
         seed: int = 0,
@@ -951,6 +958,13 @@ class KOTradingEnv(gym.Env):
         self.partial_target = bool(partial_target)
         self.partial_fraction = float(partial_fraction)
         self.partial_ko_multiple = float(partial_ko_multiple)
+        self.partial_atr = bool(partial_atr)
+        self.partial_multiple_low = float(partial_multiple_low)
+        self.partial_multiple_high = float(partial_multiple_high)
+        self.partial_atr_percentile = float(partial_atr_percentile)
+        self.partial_atr_window = int(partial_atr_window)
+        self.partial_min_net_usd = float(partial_min_net_usd)
+        self.legacy_obs_layout = bool(legacy_obs_layout)
         if self.mr_only:
             self.exit_on_sma_cross = False
         self.rng = np.random.default_rng(seed)
@@ -959,7 +973,8 @@ class KOTradingEnv(gym.Env):
         self.n_sizes = len(self.size_fractions)
         self.n_entry_actions = 2 * self.n_certs * self.n_sizes
         self.n_actions = 2 + self.n_entry_actions
-        self.obs_dim = SIGNAL_DIM * len(self.profiles) + MARKET_DIM + KO_OBS_DIM
+        self.obs_dim = (SIGNAL_DIM * len(self.profiles) + MARKET_DIM
+                        + (34 if self.legacy_obs_layout else KO_OBS_DIM))
         self.observation_space = spaces.Box(
             low=-10.0, high=10.0, shape=(self.obs_dim,), dtype=np.float32
         )
@@ -999,6 +1014,8 @@ class KOTradingEnv(gym.Env):
         self.entry_mid = 0.0
         self.entry_mr_ratio = 0.0
         self.entry_expected_net_fees = 0.0
+        self.entry_atr_pct = 0.0
+        self.entry_partial_multiple = 0.0
         self.mid_target_active = False
         self.holding = 0
         self.max_proximity = 0.0
@@ -1067,6 +1084,8 @@ class KOTradingEnv(gym.Env):
         self.entry_mid = 0.0
         self.entry_mr_ratio = 0.0
         self.entry_expected_net_fees = 0.0
+        self.entry_atr_pct = 0.0
+        self.entry_partial_multiple = 0.0
         self.mid_target_active = False
         self.holding = 0
         self.max_proximity = 0.0
@@ -1180,6 +1199,23 @@ class KOTradingEnv(gym.Env):
         atr_norm = float(s.market[idx, 3]) / 100.0
         return max(float(s.close[idx]) * abs(atr_norm), 1e-9)
 
+    def _atr_percentile(self, idx: int) -> float:
+        s = self.series
+        assert s is not None
+        atr_series = np.abs(s.market[:, 3].astype(float)) / 100.0
+        lo = max(0, idx - max(1, self.partial_atr_window) + 1)
+        window = atr_series[lo:idx + 1]
+        if len(window) == 0:
+            return 0.5
+        return float((window <= atr_series[idx]).mean())
+
+    def _partial_multiple(self, idx: int) -> float:
+        if not self.partial_atr:
+            return self.partial_ko_multiple
+        pct = self._atr_percentile(idx)
+        return (self.partial_multiple_high
+                if pct >= self.partial_atr_percentile else self.partial_multiple_low)
+
     def _ko_distance(self, price: float) -> float:
         """Current distance to KO in price fraction (>=0)."""
         if self.position == 0 or self.ko_level <= 0:
@@ -1275,6 +1311,8 @@ class KOTradingEnv(gym.Env):
         gross = self.position * close_stake * self.leverage * (
             fill / max(self.entry_price, 1e-9) - 1.0)
         fee = self.trade_fee
+        if gross - fee < self.partial_min_net_usd:
+            return
         self.cash += close_stake + gross - fee
         self.remaining_stake -= close_stake
         self.partial_gross += gross
@@ -1354,6 +1392,7 @@ class KOTradingEnv(gym.Env):
         trade_count_norm = float(np.clip(len(self.trade_log) / 50.0, 0.0, 1.0))
 
         cert_block = np.zeros(MAX_CERTS_STATE * 5, dtype=np.float32)
+        cert_block_old = np.zeros(MAX_CERTS_STATE * 3, dtype=np.float32)
         for i, lev in enumerate(self.cert_leverages[:MAX_CERTS_STATE]):
             dist_pct = 1.0 / max(lev, 1e-9) + self.ko_buffer
             dist_atr = price * dist_pct / max(atr, 1e-9)
@@ -1367,33 +1406,68 @@ class KOTradingEnv(gym.Env):
             cert_block[5 * i + 2] = np.clip(dist_atr / 10.0, 0.0, 2.0)
             cert_block[5 * i + 3] = np.clip(ratio / 5.0, 0.0, 3.0)
             cert_block[5 * i + 4] = np.clip(expected_net / fee / 10.0, -1.0, 3.0)
+            cert_block_old[3 * i] = cert_block[5 * i]
+            cert_block_old[3 * i + 1] = cert_block[5 * i + 1]
+            cert_block_old[3 * i + 2] = cert_block[5 * i + 2]
 
-        ko_block = np.array([
-            float(self.position),
-            float(self.partial_done),
-            float(np.clip(stake_norm, 0.0, 1.0)),
-            float(np.clip(lev_norm, 0.0, 1.0)),
-            float(np.clip(dist_norm, 0.0, 1.0)),
-            float(np.clip(dist_atr_norm, 0.0, 2.0)),
-            float(np.clip(proximity, 0.0, 1.0)),
-            float(unreal),
-            float(holding_norm),
-            float(np.clip(dd, 0.0, 1.0)),
-            float(np.clip(equity_ret, -1.0, 1.0)),
-            mid_dist_norm,
-            mid_side,
-            mid_approach,
-            spread_norm,
-            spread_change,
-            sma_cross,
-            fee_burden,
-            trade_count_norm,
-            pnl_to_fee,
-            atr_value_fees,
-            mid_room_fees,
-            sma_room_fees,
-            *cert_block.tolist(),
-        ], dtype=np.float32)
+        atr_pct = self._atr_percentile(idx)
+        partial_mult_active = self._partial_multiple(idx) if self.partial_target else 0.0
+
+        if self.legacy_obs_layout:
+            ko_block = np.array([
+                float(self.position),
+                float(np.clip(stake_norm, 0.0, 1.0)),
+                float(np.clip(lev_norm, 0.0, 1.0)),
+                float(np.clip(dist_norm, 0.0, 1.0)),
+                float(np.clip(dist_atr_norm, 0.0, 2.0)),
+                float(np.clip(proximity, 0.0, 1.0)),
+                float(unreal),
+                float(holding_norm),
+                float(np.clip(dd, 0.0, 1.0)),
+                float(np.clip(equity_ret, -1.0, 1.0)),
+                mid_dist_norm,
+                mid_side,
+                mid_approach,
+                spread_norm,
+                spread_change,
+                sma_cross,
+                fee_burden,
+                trade_count_norm,
+                pnl_to_fee,
+                atr_value_fees,
+                mid_room_fees,
+                sma_room_fees,
+                *cert_block_old.tolist(),
+            ], dtype=np.float32)
+        else:
+            ko_block = np.array([
+                float(self.position),
+                float(self.partial_done),
+                float(np.clip(stake_norm, 0.0, 1.0)),
+                float(np.clip(lev_norm, 0.0, 1.0)),
+                float(np.clip(dist_norm, 0.0, 1.0)),
+                float(np.clip(dist_atr_norm, 0.0, 2.0)),
+                float(np.clip(proximity, 0.0, 1.0)),
+                float(unreal),
+                float(holding_norm),
+                float(np.clip(dd, 0.0, 1.0)),
+                float(np.clip(equity_ret, -1.0, 1.0)),
+                float(np.clip(atr_pct, 0.0, 1.0)),
+                float(np.clip(partial_mult_active, 0.0, 2.0)),
+                mid_dist_norm,
+                mid_side,
+                mid_approach,
+                spread_norm,
+                spread_change,
+                sma_cross,
+                fee_burden,
+                trade_count_norm,
+                pnl_to_fee,
+                atr_value_fees,
+                mid_room_fees,
+                sma_room_fees,
+                *cert_block.tolist(),
+            ], dtype=np.float32)
         return np.concatenate(parts + [market, ko_block]).astype(np.float32)
 
     # ------------------------------------------------------------------
@@ -1424,8 +1498,11 @@ class KOTradingEnv(gym.Env):
         self.leverage = leverage
         self.initial_ko_dist = ko_dist
         self.ko_level = entry * (1.0 - direction * ko_dist)
+        partial_mult = self._partial_multiple(idx)
+        self.entry_atr_pct = self._atr_percentile(idx)
+        self.entry_partial_multiple = partial_mult if self.partial_target else 0.0
         self.partial_target_price = (
-            entry * (1.0 + direction * self.partial_ko_multiple * ko_dist)
+            entry * (1.0 + direction * partial_mult * ko_dist)
             if self.partial_target else 0.0
         )
         atr = self._atr_at(idx)
@@ -1511,6 +1588,8 @@ class KOTradingEnv(gym.Env):
             "mid_target_active": bool(self.mid_target_active),
             "entry_mr_ratio": float(self.entry_mr_ratio),
             "entry_expected_net_fees": float(self.entry_expected_net_fees),
+            "entry_atr_pct": float(self.entry_atr_pct),
+            "entry_partial_multiple": float(self.entry_partial_multiple),
             "max_proximity": float(self.max_proximity),
             "min_ko_dist_atr": float(self.min_ko_dist_atr),
         })
