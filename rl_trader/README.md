@@ -412,6 +412,11 @@ Gebühren, ohne die Politik vollständig auf die Regel zu fixieren.
 (65 OOT-Trades, +4.66 % OOT) und nutzt mehr 60x/80x. Die finalen Läufe nutzen
 10k (ml4t) bzw. 20k (all3) plus BC-Anker.
 
+Hinweis zur Datenherkunft: `AAPL` war sowohl für die Signalgeber als auch für
+den RL-Agenten vollständig OOT. `NVDA` war für die Signalgeber im Training,
+aber **nicht** für den RL-Agenten; der NVDA-Test prüft also die RL-Politik auf
+einem für sie unbekannten Ticker, nicht die Signalgeber.
+
 ## Evaluation
 
 ```bash
