@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-11-27T05:10:42+00:00",
+  "default_active": "ml4t_opt",
+  "profiles": {
+    "ml4t": {
+      "bundle": "ml4t_opt",
+      "strand": "ml4t_opt",
+      "run_id": "ml4t_04",
+      "profile": "ml4t",
+      "active_dir": "ml4t_opt/active",
+      "config": "ml4t_opt/active/model_config.json",
+      "description": "Stationary ML4T feature strand (ml4t_tol2) - default active profile",
+      "default": true
+    },
+    "baseline": {
+      "bundle": "baseline_opt",
+      "strand": "baseline_opt",
+      "run_id": "base_05",
+      "profile": "baseline",
+      "active_dir": "baseline_opt/active",
+      "config": "baseline_opt/active/model_config.json",
+      "description": "Original/Baseline strand: standard feat_* + swing labels (prepared_data)",
+      "default": false
+    },
+    "sma_auto": {
+      "bundle": "sma_auto_opt",
+      "strand": "sma_auto_opt",
+      "run_id": "sma_05",
+      "profile": "sma_auto",
+      "active_dir": "sma_auto_opt/active",
+      "config": "sma_auto_opt/active/model_config.json",
+      "description": "SMA(38/80) segment + auto-search strand (sma5_tol2, corrected labels)",
+      "default": false
+    }
+  },
+  "aliases": {
+    "baseline_opt": "baseline",
+    "sma_auto_opt": "sma_auto",
+    "ml4t_opt": "ml4t"
+  }
+}

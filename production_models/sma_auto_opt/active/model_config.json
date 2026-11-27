@@ -1,0 +1,243 @@
+{
+  "schema_version": "1.0",
+  "bundle_version": "1.0.0",
+  "profile": "sma_auto",
+  "strand": "sma_auto_opt",
+  "run_id": "sma_05",
+  "display_name": "sma_auto_opt / sma_05",
+  "description": "SMA(38/80) segment + auto-search strand (sma5_tol2, corrected labels)",
+  "created_at": "2026-11-27T05:10:42+00:00",
+  "source": {
+    "eval_dir": "runs/eval_3ways/sma_auto_opt/best",
+    "run_dir": "runs/eval_3ways/sma_auto_opt/sma_05",
+    "training_run_log": "runs/eval_3ways/sma_auto_opt/sma_05/training_run.log",
+    "experiments_summary": "runs/eval_3ways/sma_auto_opt/experiments_summary.csv",
+    "command_file": "runs/eval_3ways/sma_auto_opt/sma_05/command.txt",
+    "source_model_mtime": "2026-11-27T04:09:20+00:00"
+  },
+  "data": {
+    "variant": "sma5_tol2",
+    "input_dir": "runs/eval_3ways/_data/sma5_tol2",
+    "feature_pipeline_key": "sma5",
+    "feature_pipeline": "prepare_sma5_data.compute_features (ta indicator features)",
+    "feature_list": [
+      "feat_rsi",
+      "feat_rsi_diff",
+      "feat_stoch_k",
+      "feat_stoch_d",
+      "feat_stoch_diff",
+      "feat_adx",
+      "feat_bb_pct_b",
+      "feat_bb_bandwidth",
+      "feat_bb_dist_mid",
+      "feat_mfi",
+      "feat_mfi_diff"
+    ],
+    "feature_count": 11,
+    "prepare_script": "prepare_sma5_data.py + corrected +/-2 label expansion",
+    "prepare_args": {
+      "window": 6
+    },
+    "label_rule": {
+      "type": "sma_cross_segment_extreme",
+      "sma_fast": 38,
+      "sma_slow": 80,
+      "segment_definition": "Contiguous segments between sign changes of (SMA38-SMA80). Bull segment -> argmax(high) labeled -1; bear segment -> argmin(low) labeled +1.",
+      "future_horizon_bars": 6,
+      "label_max_move_atr": "ATR(14)-normalized move to the segment extreme / future window",
+      "tolerance_bars": 2,
+      "tolerance_expansion": "Original segment labels expanded into neutral bars within +/-2 bars. Expansion uses a snapshot of the original labels, so no forward cascade.",
+      "notes": "Corrected SMA(38/80) segment logic (sma5_tol2)."
+    }
+  },
+  "architecture": {
+    "type": "TurningPointMLP",
+    "input_dim": 11,
+    "hidden_dims": [
+      96,
+      48
+    ],
+    "dropout": 0.4,
+    "num_classes": 3,
+    "activation": "SiLU",
+    "normalization": "BatchNorm1d",
+    "output": "softmax over [Extrem-Hoch(-1), Neutral(0), Extrem-Tief(+1)]"
+  },
+  "training": {
+    "seed": 42,
+    "epochs": 18,
+    "epochs_run": 18,
+    "batch_size": 64,
+    "learning_rate": 0.0007,
+    "weight_decay": 0.0005,
+    "dropout": 0.4,
+    "hidden_dims": [
+      96,
+      48
+    ],
+    "patience": 10,
+    "class_weight_power": 0.6,
+    "class_weights": [
+      4.0521398738343555,
+      0.5386211740719828,
+      4.020513920899922
+    ],
+    "class_counts_train": [
+      989.0,
+      28567.0,
+      1002.0
+    ],
+    "label_smoothing": 0.05,
+    "use_move_atr_weighting": true,
+    "train_frac": 0.7,
+    "val_frac": 0.15,
+    "purge_minutes": 0.0,
+    "out_of_tickers": [
+      "AAPL"
+    ]
+  },
+  "post_processing": {
+    "threshold": 0.45,
+    "confidence_filter": 0.45,
+    "cooldown_bars": 8,
+    "nms": "suppress_signal_clusters: keep strongest signal per class, enforce cooldown bars",
+    "threshold_search_range": [
+      0.45,
+      0.6,
+      0.05
+    ]
+  },
+  "class_mapping": {
+    "0": -1,
+    "1": 0,
+    "2": 1
+  },
+  "reference_metrics": {
+    "selection_score": 0.41488601476357,
+    "val_f1": 0.121,
+    "test_f1": 0.122,
+    "oot_f1": 0.115,
+    "threshold": 0.45,
+    "hit_rate_bull": 0.8021680216802168,
+    "hit_rate_bear": 0.7894736842105263,
+    "hit_avg": 0.7958208529453716,
+    "hits_bull": 296,
+    "misses_bull": 73,
+    "hits_bear": 285,
+    "misses_bear": 76,
+    "signals": 3857,
+    "extra_signals": 3253,
+    "extra_rate": 0.8434016074669433,
+    "event_precision": 0.15153886280646844,
+    "event_recall": 0.7958904109589041,
+    "event_f1": 0.25460122699386506,
+    "atr_quality": 0.4414019933930174,
+    "mean_atr_dist": 1.2655085726122126
+  },
+  "gate": {
+    "val_f1_abs_drop": 0.02,
+    "val_f1_rel_drop": 0.1,
+    "oot_f1_abs_drop": 0.02,
+    "oot_f1_rel_drop": 0.1,
+    "hit_avg_abs_drop": 0.05,
+    "event_precision_abs_drop": 0.03,
+    "extra_rate_abs_increase": 0.05,
+    "min_signals": 50
+  },
+  "training_data": {
+    "prepared_rows": 53325,
+    "splits": {
+      "train": {
+        "rows": 30558,
+        "start": "2025-09-19 19:00:00+00:00",
+        "end": "2026-10-09 18:10:00+00:00",
+        "labels": {
+          "-1": 989,
+          "0": 28567,
+          "1": 1002
+        }
+      },
+      "val": {
+        "rows": 8537,
+        "start": "2026-10-09 18:15:00+00:00",
+        "end": "2026-10-23 13:25:00+00:00",
+        "labels": {
+          "-1": 327,
+          "0": 7945,
+          "1": 265
+        }
+      },
+      "test": {
+        "rows": 8305,
+        "start": "2026-10-23 13:30:00+00:00",
+        "end": "2026-11-04 20:30:00+00:00",
+        "labels": {
+          "-1": 244,
+          "0": 7774,
+          "1": 287
+        }
+      },
+      "oot": {
+        "rows": 5925,
+        "start": "2025-11-06 20:00:00+00:00",
+        "end": "2026-11-04 20:30:00+00:00",
+        "labels": {
+          "-1": 198,
+          "0": 5524,
+          "1": 203
+        }
+      }
+    },
+    "features_seen_in_log": [
+      "feat_rsi",
+      "feat_rsi_diff",
+      "feat_stoch_k",
+      "feat_stoch_d",
+      "feat_stoch_diff",
+      "feat_adx",
+      "feat_bb_pct_b",
+      "feat_bb_bandwidth",
+      "feat_bb_dist_mid",
+      "feat_mfi",
+      "feat_mfi_diff"
+    ]
+  },
+  "inference": {
+    "entrypoint": "predict_production.py",
+    "output_columns": [
+      "source_file",
+      "meta_t",
+      "meta_ticker",
+      "meta_timeframe",
+      "meta_open",
+      "meta_high",
+      "meta_low",
+      "meta_close",
+      "prob_-1",
+      "prob_0",
+      "prob_1",
+      "raw_pred",
+      "filtered_pred",
+      "valid_features",
+      "model_profile",
+      "threshold",
+      "cooldown_bars"
+    ],
+    "raw_pred": "threshold applied with cooldown_bars=1",
+    "filtered_pred": "threshold + configured cooldown (NMS)"
+  },
+  "lifecycle": {
+    "state": "active",
+    "promoted_at": "2026-11-27T05:10:42+00:00",
+    "parent_version": null,
+    "promotion_reason": "initial production freeze from eval winner"
+  },
+  "artifacts": {
+    "model_file": "turning_point_mlp.pt",
+    "scaler_file": "feature_scaler.joblib",
+    "model_sha256": "1ace26f67b2590d0cec4be94a3b0ce08be35f25dcb9d8200b24e9e67997e250f",
+    "scaler_sha256": "1ddf253cfc1b00b493c8275b066df08a4001b52a421c01da4439a6dd43ebb4b7",
+    "model_bytes": 32463,
+    "scaler_bytes": 863
+  }
+}

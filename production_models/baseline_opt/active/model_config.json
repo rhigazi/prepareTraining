@@ -1,0 +1,256 @@
+{
+  "schema_version": "1.0",
+  "bundle_version": "1.0.0",
+  "profile": "baseline",
+  "strand": "baseline_opt",
+  "run_id": "base_05",
+  "display_name": "baseline_opt / base_05",
+  "description": "Original/Baseline strand: standard feat_* + swing labels (prepared_data)",
+  "created_at": "2026-11-27T05:10:42+00:00",
+  "source": {
+    "eval_dir": "runs/eval_3ways/baseline_opt/best",
+    "run_dir": "runs/eval_3ways/baseline_opt/base_05",
+    "training_run_log": "runs/eval_3ways/baseline_opt/base_05/training_run.log",
+    "experiments_summary": "runs/eval_3ways/baseline_opt/experiments_summary.csv",
+    "command_file": "runs/eval_3ways/baseline_opt/base_05/command.txt",
+    "source_model_mtime": "2026-11-27T03:44:16+00:00"
+  },
+  "data": {
+    "variant": "prepared_data",
+    "input_dir": "prepared_data",
+    "feature_pipeline_key": "baseline",
+    "feature_pipeline": "annotate_extremes.compute_features (standard feat_*)",
+    "feature_list": [
+      "feat_body_atr",
+      "feat_upper_wick_atr",
+      "feat_lower_wick_atr",
+      "feat_close_pos_in_candle",
+      "feat_dist_sma38_atr",
+      "feat_dist_sma80_atr",
+      "feat_diff_sma38_80_atr",
+      "feat_dist_vwap_atr",
+      "feat_sma38_slope",
+      "feat_rsi21",
+      "feat_rsi21_diff",
+      "feat_cross_sma",
+      "feat_adx14",
+      "feat_stoch_k",
+      "feat_stoch_d",
+      "feat_rel_volume"
+    ],
+    "feature_count": 16,
+    "prepare_script": "prepareTraining.py",
+    "prepare_args": {
+      "window_left": 6,
+      "window_right": 6,
+      "min_move_atr": 1.5,
+      "min_rel_volume": null,
+      "max_gap_minutes": null
+    },
+    "label_rule": {
+      "type": "swing_high_low",
+      "window_left": 6,
+      "window_right": 6,
+      "min_move_atr": 1.5,
+      "future_horizon_bars": 6,
+      "conflict_resolution": "larger ATR counter-move wins; tie -> neutral",
+      "tolerance_bars": 0,
+      "notes": "Standard prepareTraining.py swing labels (prepared_data)."
+    }
+  },
+  "architecture": {
+    "type": "TurningPointMLP",
+    "input_dim": 16,
+    "hidden_dims": [
+      96,
+      48
+    ],
+    "dropout": 0.3,
+    "num_classes": 3,
+    "activation": "SiLU",
+    "normalization": "BatchNorm1d",
+    "output": "softmax over [Extrem-Hoch(-1), Neutral(0), Extrem-Tief(+1)]"
+  },
+  "training": {
+    "seed": 42,
+    "epochs": 18,
+    "epochs_run": 18,
+    "batch_size": 64,
+    "learning_rate": 0.0007,
+    "weight_decay": 0.0005,
+    "dropout": 0.3,
+    "hidden_dims": [
+      96,
+      48
+    ],
+    "patience": 10,
+    "class_weight_power": 0.5,
+    "class_weights": [
+      2.6690890972133543,
+      0.6066818063823992,
+      2.647183624516724
+    ],
+    "class_counts_train": [
+      1384.0,
+      26788.0,
+      1407.0
+    ],
+    "label_smoothing": 0.05,
+    "use_move_atr_weighting": true,
+    "train_frac": 0.7,
+    "val_frac": 0.15,
+    "purge_minutes": 0.0,
+    "out_of_tickers": [
+      "AAPL"
+    ]
+  },
+  "post_processing": {
+    "threshold": 0.45,
+    "confidence_filter": 0.45,
+    "cooldown_bars": 6,
+    "nms": "suppress_signal_clusters: keep strongest signal per class, enforce cooldown bars",
+    "threshold_search_range": [
+      0.4,
+      0.6,
+      0.05
+    ]
+  },
+  "class_mapping": {
+    "0": -1,
+    "1": 0,
+    "2": 1
+  },
+  "reference_metrics": {
+    "selection_score": 0.4947438044349735,
+    "val_f1": 0.414,
+    "test_f1": 0.411,
+    "oot_f1": 0.437,
+    "threshold": 0.45,
+    "hit_rate_bull": 0.8346883468834688,
+    "hit_rate_bear": 0.8670360110803325,
+    "hit_avg": 0.8508621789819006,
+    "hits_bull": 308,
+    "misses_bull": 61,
+    "hits_bear": 313,
+    "misses_bear": 48,
+    "signals": 6688,
+    "extra_signals": 6055,
+    "extra_rate": 0.9053528708133972,
+    "event_precision": 0.09301977231875375,
+    "event_recall": 0.8506849315068493,
+    "event_f1": 0.16770186335403728,
+    "atr_quality": 0.6095665571993312,
+    "mean_atr_dist": 0.6405099462715361
+  },
+  "gate": {
+    "val_f1_abs_drop": 0.02,
+    "val_f1_rel_drop": 0.1,
+    "oot_f1_abs_drop": 0.02,
+    "oot_f1_rel_drop": 0.1,
+    "hit_avg_abs_drop": 0.05,
+    "event_precision_abs_drop": 0.03,
+    "extra_rate_abs_increase": 0.05,
+    "min_signals": 50
+  },
+  "training_data": {
+    "prepared_rows": 51705,
+    "splits": {
+      "train": {
+        "rows": 29579,
+        "start": "2025-10-02 16:00:00+00:00",
+        "end": "2026-10-12 14:55:00+00:00",
+        "labels": {
+          "-1": 1384,
+          "0": 26788,
+          "1": 1407
+        }
+      },
+      "val": {
+        "rows": 8372,
+        "start": "2026-10-12 15:00:00+00:00",
+        "end": "2026-10-23 15:35:00+00:00",
+        "labels": {
+          "-1": 389,
+          "0": 7590,
+          "1": 393
+        }
+      },
+      "test": {
+        "rows": 8009,
+        "start": "2026-10-23 15:40:00+00:00",
+        "end": "2026-11-04 20:30:00+00:00",
+        "labels": {
+          "-1": 356,
+          "0": 7294,
+          "1": 359
+        }
+      },
+      "oot": {
+        "rows": 5745,
+        "start": "2025-11-18 17:00:00+00:00",
+        "end": "2026-11-04 20:30:00+00:00",
+        "labels": {
+          "-1": 262,
+          "0": 5208,
+          "1": 275
+        }
+      }
+    },
+    "features_seen_in_log": [
+      "feat_body_atr",
+      "feat_upper_wick_atr",
+      "feat_lower_wick_atr",
+      "feat_close_pos_in_candle",
+      "feat_dist_sma38_atr",
+      "feat_dist_sma80_atr",
+      "feat_diff_sma38_80_atr",
+      "feat_dist_vwap_atr",
+      "feat_sma38_slope",
+      "feat_rsi21",
+      "feat_rsi21_diff",
+      "feat_cross_sma",
+      "feat_adx14",
+      "feat_stoch_k",
+      "feat_stoch_d",
+      "feat_rel_volume"
+    ]
+  },
+  "inference": {
+    "entrypoint": "predict_production.py",
+    "output_columns": [
+      "source_file",
+      "meta_t",
+      "meta_ticker",
+      "meta_timeframe",
+      "meta_open",
+      "meta_high",
+      "meta_low",
+      "meta_close",
+      "prob_-1",
+      "prob_0",
+      "prob_1",
+      "raw_pred",
+      "filtered_pred",
+      "valid_features",
+      "model_profile",
+      "threshold",
+      "cooldown_bars"
+    ],
+    "raw_pred": "threshold applied with cooldown_bars=1",
+    "filtered_pred": "threshold + configured cooldown (NMS)"
+  },
+  "lifecycle": {
+    "state": "active",
+    "promoted_at": "2026-11-27T05:10:42+00:00",
+    "parent_version": null,
+    "promotion_reason": "initial production freeze from eval winner"
+  },
+  "artifacts": {
+    "model_file": "turning_point_mlp.pt",
+    "scaler_file": "feature_scaler.joblib",
+    "model_sha256": "d1a370cf58f5c22a0081f2bd5637b2b9340d966f88605bfcebd64c4e6d5c5214",
+    "scaler_sha256": "2fd2c544024f2d1f33d4fc8dc34f8c239323cced6ce868b9c6252cc69eb1b8a2",
+    "model_bytes": 34575,
+    "scaler_bytes": 999
+  }
+}

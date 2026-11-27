@@ -10,3 +10,8 @@ extremes_output_sma5/
 tol3_test/
 runs/
 extremes_output*/
+predictions/
+production_models/*/candidates/
+production_models/*/archive/
+production_models/_tmp/
+production_models/retrain.log
