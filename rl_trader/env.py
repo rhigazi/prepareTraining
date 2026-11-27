@@ -843,7 +843,7 @@ class TradingEnv(gym.Env):
         return info
 
 
-KO_OBS_DIM = 34  # account + mean-reversion/SMA + fee/ratio block + 4-slot certificate palette
+KO_OBS_DIM = 42  # account + mid/SMA + fee ratios + 4-slot certificate palette (5 values/cert)
 MAX_CERTS_STATE = 4
 
 
@@ -901,6 +901,9 @@ class KOTradingEnv(gym.Env):
         fee_basis: float = 2.0,
         min_edge_ratio: float = 0.0,
         min_ko_buffer_atr: float = 0.0,
+        mr_only: bool = False,
+        min_mr_ko_ratio: float = 0.0,
+        mr_ratio_bonus: float = 0.25,
         signal_bonus: float = 0.0,
         signal_conf_min: float = 0.55,
         seed: int = 0,
@@ -934,6 +937,11 @@ class KOTradingEnv(gym.Env):
         self.fee_basis = float(fee_basis)
         self.min_edge_ratio = float(min_edge_ratio)
         self.min_ko_buffer_atr = float(min_ko_buffer_atr)
+        self.mr_only = bool(mr_only)
+        self.min_mr_ko_ratio = float(min_mr_ko_ratio)
+        self.mr_ratio_bonus = float(mr_ratio_bonus)
+        if self.mr_only:
+            self.exit_on_sma_cross = False
         self.rng = np.random.default_rng(seed)
 
         self.n_certs = len(self.cert_leverages)
@@ -970,6 +978,8 @@ class KOTradingEnv(gym.Env):
         self.entry_fee = 0.0
         self.entry_signal = 0
         self.entry_mid = 0.0
+        self.entry_mr_ratio = 0.0
+        self.entry_expected_net_fees = 0.0
         self.mid_target_active = False
         self.holding = 0
         self.max_proximity = 0.0
@@ -1028,6 +1038,8 @@ class KOTradingEnv(gym.Env):
         self.entry_fee = 0.0
         self.entry_signal = 0
         self.entry_mid = 0.0
+        self.entry_mr_ratio = 0.0
+        self.entry_expected_net_fees = 0.0
         self.mid_target_active = False
         self.holding = 0
         self.max_proximity = 0.0
@@ -1094,6 +1106,16 @@ class KOTradingEnv(gym.Env):
             if prox >= 0.75:
                 return 1  # close
         if signal != 0 and conf >= conf_min and signal != self.position:
+            if self.mr_only:
+                for cert_idx in range(self.n_certs - 1, -1, -1):
+                    sizes = [1, 0] if cert_idx == self.n_certs - 1 else [0, 1]
+                    for size_idx in sizes:
+                        if size_idx < self.n_sizes and self.entry_edge_ok(
+                                self.idx, cert_idx, size_idx):
+                            return self.action_for_direction(
+                                signal, cert_idx=cert_idx, size_idx=size_idx)
+                return 0
+
             atr_norm = abs(float(s.market[self.idx, 3])) / 100.0
             if atr_norm >= 0.01:
                 cert_idx, size_idx = 0, 0          # 22x, full
@@ -1140,7 +1162,7 @@ class KOTradingEnv(gym.Env):
         return max((self.ko_level - price) / max(price, 1e-9), 0.0)
 
     def _entry_edge(self, idx: int, cert_idx: int, size_idx: int):
-        """Expected target move / round-trip fee and KO buffer in ATR."""
+        """Return (edge_fees, ko_atr, mr_ko_ratio, expected_net_fees)."""
         s = self.series
         assert s is not None
         price = float(s.close[idx])
@@ -1148,21 +1170,31 @@ class KOTradingEnv(gym.Env):
         stake = self.position_size * self.size_fractions[size_idx]
         lev = self.cert_leverages[cert_idx]
         mid = float(s.mid[idx])
+        mid_dist_price = abs(price - mid)
         spread = abs(float(s.sma38[idx] - s.sma80[idx]))
-        mid_room = abs(price - mid) * lev * stake / max(price, 1e-9)
+        mid_room = mid_dist_price * lev * stake / max(price, 1e-9)
         sma_room = spread * lev * stake / max(price, 1e-9)
         roundtrip_fee = max(self.trade_fee * self.fee_basis, 1e-9)
-        edge_fees = max(mid_room, sma_room) / roundtrip_fee
+        target_room = mid_room if self.mr_only else max(mid_room, sma_room)
+        edge_fees = target_room / roundtrip_fee
         ko_dist = 1.0 / max(lev, 1e-9) + self.ko_buffer
-        ko_atr = (price * ko_dist) / max(atr, 1e-9)
-        return float(edge_fees), float(ko_atr)
+        ko_dist_price = price * ko_dist
+        ko_atr = ko_dist_price / max(atr, 1e-9)
+        mr_ko_ratio = mid_dist_price / max(ko_dist_price, 1e-9)
+        expected_net = mid_room - roundtrip_fee
+        expected_net_fees = expected_net / roundtrip_fee
+        return (float(edge_fees), float(ko_atr), float(mr_ko_ratio),
+                float(expected_net_fees))
 
     def entry_edge_ok(self, idx: int, cert_idx: int, size_idx: int) -> bool:
-        """Strict cost/KO filter for new entries (0 thresholds disable it)."""
-        if self.min_edge_ratio <= 0.0 and self.min_ko_buffer_atr <= 0.0:
+        """Strict cost/KO/mean-reversion filter for new entries."""
+        if (self.min_edge_ratio <= 0.0 and self.min_ko_buffer_atr <= 0.0
+                and self.min_mr_ko_ratio <= 0.0):
             return True
-        edge_fees, ko_atr = self._entry_edge(idx, cert_idx, size_idx)
-        return edge_fees >= self.min_edge_ratio and ko_atr >= self.min_ko_buffer_atr
+        edge_fees, ko_atr, mr_ko_ratio, _ = self._entry_edge(idx, cert_idx, size_idx)
+        return (edge_fees >= self.min_edge_ratio
+                and ko_atr >= self.min_ko_buffer_atr
+                and mr_ko_ratio >= self.min_mr_ko_ratio)
 
     def _unrealized(self, price: float) -> float:
         if self.position == 0 or self.entry_price <= 0:
@@ -1210,6 +1242,10 @@ class KOTradingEnv(gym.Env):
         spread_norm = float(np.clip(spread / max(atr, 1e-9) / 10.0, -2.0, 2.0))
         spread_change = float(np.sign(spread - prev_spread))
         sma_cross = float(s.sma_cross[idx])
+        if self.mr_only:
+            spread_norm = 0.0
+            spread_change = 0.0
+            sma_cross = 0.0
 
         if self.position != 0:
             ratio_stake = self.stake
@@ -1226,17 +1262,26 @@ class KOTradingEnv(gym.Env):
         mid_room_fees = float(np.clip(mid_room_usd / fee, 0.0, 20.0))
         sma_room_usd = abs(spread) * ratio_lev * ratio_stake / max(price, 1e-9)
         sma_room_fees = float(np.clip(sma_room_usd / fee, 0.0, 20.0))
+        if self.mr_only:
+            sma_room_fees = 0.0
         pnl_to_fee = float(np.clip(unreal_usd / fee, -10.0, 10.0))
         fee_burden = float(np.clip(self.total_fees / max(self.initial_cash, 1e-9), 0.0, 1.0))
         trade_count_norm = float(np.clip(len(self.trade_log) / 50.0, 0.0, 1.0))
 
-        cert_block = np.zeros(MAX_CERTS_STATE * 3, dtype=np.float32)
+        cert_block = np.zeros(MAX_CERTS_STATE * 5, dtype=np.float32)
         for i, lev in enumerate(self.cert_leverages[:MAX_CERTS_STATE]):
             dist_pct = 1.0 / max(lev, 1e-9) + self.ko_buffer
             dist_atr = price * dist_pct / max(atr, 1e-9)
-            cert_block[3 * i] = np.clip(lev / 100.0, 0.0, 1.5)
-            cert_block[3 * i + 1] = np.clip(dist_pct * 10.0, 0.0, 2.0)
-            cert_block[3 * i + 2] = np.clip(dist_atr / 10.0, 0.0, 2.0)
+            ko_dist_price = price * dist_pct
+            mid_dist_price = abs(price - mid)
+            ratio = mid_dist_price / max(ko_dist_price, 1e-9)
+            expected_net = (mid_dist_price * lev * self.position_size
+                            / max(price, 1e-9) - fee)
+            cert_block[5 * i] = np.clip(lev / 100.0, 0.0, 1.5)
+            cert_block[5 * i + 1] = np.clip(dist_pct * 10.0, 0.0, 2.0)
+            cert_block[5 * i + 2] = np.clip(dist_atr / 10.0, 0.0, 2.0)
+            cert_block[5 * i + 3] = np.clip(ratio / 5.0, 0.0, 3.0)
+            cert_block[5 * i + 4] = np.clip(expected_net / fee / 10.0, -1.0, 3.0)
 
         ko_block = np.array([
             float(self.position),
@@ -1302,6 +1347,8 @@ class KOTradingEnv(gym.Env):
                 self.mid_target_active = entry < entry_mid
             else:
                 self.mid_target_active = entry > entry_mid
+        _, _, self.entry_mr_ratio, self.entry_expected_net_fees = self._entry_edge(
+            idx, cert_idx, size_idx)
         self.holding = 0
         self.max_proximity = 0.0
         self.min_ko_dist_atr = self.initial_ko_dist_atr
@@ -1352,6 +1399,8 @@ class KOTradingEnv(gym.Env):
             "entry_had_signal": bool(self.entry_signal != 0),
             "entry_mid": float(self.entry_mid),
             "mid_target_active": bool(self.mid_target_active),
+            "entry_mr_ratio": float(self.entry_mr_ratio),
+            "entry_expected_net_fees": float(self.entry_expected_net_fees),
             "max_proximity": float(self.max_proximity),
             "min_ko_dist_atr": float(self.min_ko_dist_atr),
         })
@@ -1485,9 +1534,15 @@ class KOTradingEnv(gym.Env):
             tr = self.trade_log[-1]
             reason = tr["exit_reason"]
             net_usd = float(tr["net_pnl_usd"])
-            if reason in ("mean_revert", "sma_cross") and net_usd > 0:
-                exit_bonus += self.target_bonus * min(
-                    1.0, net_usd / max(self.position_size, 1e-9))
+            fee_rt = max(self.trade_fee * self.fee_basis, 1e-9)
+            target_ok = (reason == "mean_revert") or (
+                reason == "sma_cross" and not self.mr_only)
+            if target_ok and net_usd > fee_rt:
+                ratio_boost = 1.0
+                if self.min_mr_ko_ratio > 0.0:
+                    ratio_boost += self.mr_ratio_bonus * max(
+                        0.0, float(tr.get("entry_mr_ratio", 0.0)) - self.min_mr_ko_ratio)
+                exit_bonus += self.target_bonus * min(1.0, net_usd / fee_rt) * ratio_boost
             if (reason in ("close", "mean_revert", "sma_cross", "max_hold", "eod")
                     and net_usd >= 0 and tr["max_proximity"] >= 0.6):
                 exit_bonus += self.avoid_ko_bonus

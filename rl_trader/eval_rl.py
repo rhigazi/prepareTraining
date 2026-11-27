@@ -182,6 +182,8 @@ def ko_env_result(env: KOTradingEnv) -> dict:
             "fees_usd": float(sum(t["fees_usd"] for t in ts)),
             "share": float(len(ts) / max(1, len(trades))),
         })
+    mr_ratios = np.array([t.get("entry_mr_ratio", 0.0) for t in trades], dtype=float) \
+        if trades else np.array([])
     return {
         "ticker": env.series.ticker,
         "timeframe": env.series.timeframe,
@@ -200,6 +202,10 @@ def ko_env_result(env: KOTradingEnv) -> dict:
         "ko_count": int(len(ko_trades)),
         "ko_rate": float(len(ko_trades) / len(trades)) if trades else 0.0,
         "ko_loss_usd": float(-sum(t["gross_pnl_usd"] for t in ko_trades)),
+        "avg_mr_ko_ratio": float(mr_ratios.mean()) if len(mr_ratios) else 0.0,
+        "median_mr_ko_ratio": float(np.median(mr_ratios)) if len(mr_ratios) else 0.0,
+        "min_mr_ko_ratio": float(mr_ratios.min()) if len(mr_ratios) else 0.0,
+        "max_mr_ko_ratio": float(mr_ratios.max()) if len(mr_ratios) else 0.0,
         "close_count": int(close_count),
         "eod_count": int(eod_count),
         "target_exit_count": int(target_count),
@@ -328,6 +334,8 @@ def ko_aggregate(results: Sequence[dict]) -> dict:
     net = np.array([t["net_pnl_usd"] for t in trades], dtype=float) if trades else np.array([])
     holding = np.array([t["holding_bars"] for t in trades], dtype=float) if trades else np.array([])
     stakes = np.array([t["stake_usd"] for t in trades], dtype=float) if trades else np.array([])
+    mr_ratios = np.array([t.get("entry_mr_ratio", 0.0) for t in trades], dtype=float) \
+        if trades else np.array([])
     total_gross = float(sum(r["gross_pnl_usd"] for r in results))
     total_fees = float(sum(r["fees_usd"] for r in results))
     total_net = float(sum(r["net_pnl_usd"] for r in results))
@@ -416,6 +424,10 @@ def ko_aggregate(results: Sequence[dict]) -> dict:
         "fee_to_gross": float(fee_to_gross),
         "ko_count": ko_count,
         "ko_rate": float(ko_count / len(trades)) if trades else 0.0,
+        "avg_mr_ko_ratio": float(mr_ratios.mean()) if len(mr_ratios) else 0.0,
+        "median_mr_ko_ratio": float(np.median(mr_ratios)) if len(mr_ratios) else 0.0,
+        "min_mr_ko_ratio": float(mr_ratios.min()) if len(mr_ratios) else 0.0,
+        "max_mr_ko_ratio": float(mr_ratios.max()) if len(mr_ratios) else 0.0,
         "close_count": close_count,
         "eod_count": eod_count,
         "target_exit_count": target_count,
@@ -575,7 +587,9 @@ def write_ko_per_series_csv(path: str, split: str, method: str, results: Sequenc
     fields = ["split", "method", "ticker", "timeframe", "total_return", "max_drawdown",
               "sharpe", "trade_count", "win_rate", "avg_holding_bars", "avg_trade_usd",
               "avg_stake_usd", "gross_pnl_usd", "fees_usd", "net_pnl_usd", "fee_to_gross",
-              "ko_count", "ko_rate", "ko_loss_usd", "close_count", "eod_count",
+              "ko_count", "ko_rate", "ko_loss_usd", "avg_mr_ko_ratio",
+              "median_mr_ko_ratio", "min_mr_ko_ratio", "max_mr_ko_ratio",
+              "close_count", "eod_count",
               "sma_cross_count", "mean_revert_count", "max_hold_count",
               "target_exit_count", "avg_holding_close", "avg_holding_ko",
               "avg_holding_target", "cert_count_0", "cert_count_1", "cert_count_2",
@@ -600,6 +614,7 @@ def write_ko_trades_csv(path: str, results: Sequence[dict]):
               "stake_usd", "entry_price", "exit_price", "ko_level", "gross_pnl_usd",
               "fees_usd", "net_pnl_usd", "holding_bars", "knockout", "exit_reason",
               "entry_signal", "entry_had_signal", "entry_mid", "mid_target_active",
+              "entry_mr_ratio", "entry_expected_net_fees",
               "max_proximity", "min_ko_dist_atr"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -720,7 +735,7 @@ def format_ko_table(split: str, aggs: Dict[str, dict], high_conf: float,
                     size_fractions: Sequence[float]) -> str:
     lines = [f"\n=== {split.upper()} (KO certificates) ==="]
     header = (f"{'method':<16} {'meanRet':>9} {'maxDD':>8} {'trades':>7} "
-              f"{'win%':>6} {'hold':>7} {'KOs':>5} {'KO%':>6} {'filt':>5} "
+              f"{'win%':>6} {'hold':>7} {'KOs':>5} {'KO%':>6} {'filt':>5} {'MR/KO':>7} "
               f"{'fees$':>9} {'gross$':>10} {'net$':>10} {'fee/gross':>9} "
               f"{'sigUse%':>8} {'certPref':>18} {'sizePref':>12}")
     lines.append(header)
@@ -732,7 +747,7 @@ def format_ko_table(split: str, aggs: Dict[str, dict], high_conf: float,
             f"{name:<16} {a['mean_return']*100:>8.2f}% {a['mean_max_drawdown']*100:>7.2f}% "
             f"{a['trade_count']:>7d} {a['win_rate']*100:>5.1f}% {a['avg_holding_bars']:>6.1f} "
             f"{a['ko_count']:>5d} {a['ko_rate']*100:>5.1f}% "
-            f"{a.get('filtered_entries', 0):>5d} "
+            f"{a.get('filtered_entries', 0):>5d} {a.get('avg_mr_ko_ratio', 0.0):>7.2f} "
             f"{a['fees_usd']:>9.0f} {a['gross_pnl_usd']:>10.0f} {a['net_pnl_usd']:>10.0f} "
             f"{fg_s:>9} {signal_usage_rate(a)*100:>7.1f}% "
             f"{_cert_pref(a['cert_counts'], cert_leverages):>18} "
@@ -935,6 +950,9 @@ def main():
     fee_basis = float(cfg.get("fee_basis", 2.0))
     min_edge_ratio = float(cfg.get("min_edge_ratio", 0.0))
     min_ko_buffer_atr = float(cfg.get("min_ko_buffer_atr", 0.0))
+    mr_only = bool(cfg.get("mr_only", False))
+    min_mr_ko_ratio = float(cfg.get("min_mr_ko_ratio", 0.0))
+    mr_ratio_bonus = float(cfg.get("mr_ratio_bonus", 0.25))
     if args.timeframes is not None or args.exclude_timeframes is not None:
         timeframes = resolve_timeframes(args.timeframes, args.exclude_timeframes)
     else:
@@ -951,7 +969,9 @@ def main():
     if env_type == "ko":
         log(f"KO: fee=${trade_fee:.2f}/order stake=${position_size:.0f} "
             f"cash=${initial_cash:.0f} certs={list(cert_leverages)} "
-            f"sizes={list(size_fractions)} buffer={ko_buffer:.3f}")
+            f"sizes={list(size_fractions)} buffer={ko_buffer:.3f} "
+            f"mr_only={mr_only} min_mr_ko={min_mr_ko_ratio:.2f} "
+            f"min_edge={min_edge_ratio:.2f} min_ko_atr={min_ko_buffer_atr:.2f}")
     else:
         log(f"costs={cost_bps}bps + {slippage_bps}bps slippage")
 
@@ -984,6 +1004,9 @@ def main():
             fee_basis=fee_basis,
             min_edge_ratio=min_edge_ratio,
             min_ko_buffer_atr=min_ko_buffer_atr,
+            mr_only=mr_only,
+            min_mr_ko_ratio=min_mr_ko_ratio,
+            mr_ratio_bonus=mr_ratio_bonus,
             signal_bonus=signal_bonus, signal_conf_min=signal_conf_min,
         )
         methods = {
@@ -1075,6 +1098,9 @@ def main():
             "fee_basis": fee_basis,
             "min_edge_ratio": min_edge_ratio,
             "min_ko_buffer_atr": min_ko_buffer_atr,
+            "mr_only": mr_only,
+            "min_mr_ko_ratio": min_mr_ko_ratio,
+            "mr_ratio_bonus": mr_ratio_bonus,
         })
     else:
         report.update({

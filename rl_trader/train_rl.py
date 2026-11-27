@@ -388,6 +388,12 @@ def parse_args():
                         "of the round-trip fee (0 disables).")
     p.add_argument("--min-ko-buffer-atr", type=float, default=0.0,
                    help="KO: block entries whose initial KO distance is below this ATR value.")
+    p.add_argument("--mr-only", action="store_true",
+                   help="KO: disable SMA-cross targets; trade mean-reversion only.")
+    p.add_argument("--min-mr-ko-ratio", type=float, default=0.0,
+                   help="KO: block entries whose mid-distance / KO-distance ratio is below this.")
+    p.add_argument("--mr-ratio-bonus", type=float, default=0.25,
+                   help="KO: extra reward scale for higher mid/KO ratios on mean-reversion exits.")
     p.add_argument("--reward-scale", type=float, default=100.0)
     p.add_argument("--dd-penalty", type=float, default=0.10)
     p.add_argument("--trade-penalty", type=float, default=0.01)
@@ -473,6 +479,9 @@ def main():
             fee_basis=args.fee_basis,
             min_edge_ratio=args.min_edge_ratio,
             min_ko_buffer_atr=args.min_ko_buffer_atr,
+            mr_only=args.mr_only,
+            min_mr_ko_ratio=args.min_mr_ko_ratio,
+            mr_ratio_bonus=args.mr_ratio_bonus,
             signal_bonus=args.signal_bonus,
             signal_conf_min=args.signal_conf_min,
         )

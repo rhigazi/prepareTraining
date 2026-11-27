@@ -462,6 +462,39 @@ nachhaltig und erhöhen die Streuung. Nächster sinnvoller Schritt: 1Hour-only
 mit weniger strengem Filter (2–3x Fee) und mehr 1Hour-Trainingsdaten; 15Min
 zunächst deprioritizieren.
 
+## V4: Mean-Reversion only & 2:1 Mid/KO
+
+V4 deaktiviert SMA-Cross als Ziel vollständig (`--mr-only`). Der Agent handelt
+nur noch Mean-Reversion gegen die Mitte. Beim Einstieg wird für jeden Schein
+das Verhältnis **Distanz zur Mitte / Distanz zum KO** berechnet und im State
+bereitgestellt; `--min-mr-ko-ratio 2.0` erzwingt das ≥ 2:1-Verhältnis.
+`--mr-ratio-bonus` belohnt größere Verhältnisse, wenn an der Mitte mit
+Netto-Gewinn nach 20 $ Round-Trip geschlossen wird.
+
+| Run | Ratio-Filter | Test Ret | Test Trades | Test KOs | OOT Ret | OOT Trades | OOT KOs | OOT Fees $ | OOT Net $ | Ø MR/KO | Schein-Verteilung |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `v4_mr_only_1h` | 2.0 | 0.00 % | 0 | 0 | 0.00 % | 0 | 0 | 0 | 0 | – | – |
+| `v4_mr_only_1h_r1p5` | 1.5 | 0.00 % | 0 | 0 | 0.00 % | 0 | 0 | 0 | 0 | – | – |
+| `v4_mr_only_1h_r1p0` | 1.0 (Kontrolle) | −0.00 % | 13 | 3 | −1.16 % | 50 | 11 | 890 | −347 | 1.78 | 80x: 50/50 |
+
+**Baseline mit 2:1-Filter (Regel, kein RL):**
+
+| Methode | Test Ret | Test Trades | OOT Ret | OOT Trades | OOT KOs |
+|---|---:|---:|---:|---:|---:|
+| `blind` | −0.08 % | 1 | −0.60 % | 2 | 1 |
+| `high_conf` | −0.08 % | 1 | +0.10 % | 1 | 0 |
+
+**Fazit:** Das 2:1-Verhältnis ist auf 1Hour mit diesen Signalen **zu streng**:
+Der Agent bleibt rational flat (0 Trades), weil die wenigen validen Setups die
+20 $ Round-Trip-Kosten und das KO-Risiko nicht tragen. Lockert man auf 1.0,
+handelt der Agent fast ausschließlich 80x – und läuft mit 11 KOs auf 50
+OOT-Trades in die Knock-out-Falle; nach 890 $ Gebühren bleibt −1.16 % OOT.
+Das 2:1-Verhältnis ist ein **Reward/Risk-Filter, kein Wahrscheinlichkeits-
+Filter**: Ein weit entferntes Mean-Reversion-Ziel bei sehr nahem KO bedeutet
+häufig, dass der KO vor der Mitte erreicht wird. Für eine reine MR-Strategie
+wäre eher ein Ziel **näher als der KO** (Ratio < 1) oder ein Teilziel/Time-Stop
+sinnvoll; 2:1-R/R braucht eine deutlich höhere Trefferquote.
+
 ## Evaluation
 
 ```bash
