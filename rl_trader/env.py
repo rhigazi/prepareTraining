@@ -915,6 +915,13 @@ class KOTradingEnv(gym.Env):
         partial_atr_percentile: float = 0.7,
         partial_atr_window: int = 100,
         partial_min_net_usd: float = 0.0,
+        regime_filter: bool = False,
+        min_atr_pct: float = 0.0,
+        max_atr_pct: float = 1.0,
+        min_mr_room_atr: float = -99.0,
+        max_short_d80: float = 99.0,
+        min_long_d80: float = -99.0,
+        min_conf: float = 0.0,
         legacy_obs_layout: bool = False,
         signal_bonus: float = 0.0,
         signal_conf_min: float = 0.55,
@@ -964,6 +971,13 @@ class KOTradingEnv(gym.Env):
         self.partial_atr_percentile = float(partial_atr_percentile)
         self.partial_atr_window = int(partial_atr_window)
         self.partial_min_net_usd = float(partial_min_net_usd)
+        self.regime_filter = bool(regime_filter)
+        self.min_atr_pct = float(min_atr_pct)
+        self.max_atr_pct = float(max_atr_pct)
+        self.min_mr_room_atr = float(min_mr_room_atr)
+        self.max_short_d80 = float(max_short_d80)
+        self.min_long_d80 = float(min_long_d80)
+        self.min_conf = float(min_conf)
         self.legacy_obs_layout = bool(legacy_obs_layout)
         if self.mr_only:
             self.exit_on_sma_cross = False
@@ -1029,6 +1043,7 @@ class KOTradingEnv(gym.Env):
         self.signals_ignored = 0
         self.standalone_trades = 0
         self.filtered_entries = 0
+        self.regime_filtered = 0
         self.total_fees = 0.0
         self.gross_pnl = 0.0
         self.net_pnl = 0.0
@@ -1099,6 +1114,7 @@ class KOTradingEnv(gym.Env):
         self.signals_ignored = 0
         self.standalone_trades = 0
         self.filtered_entries = 0
+        self.regime_filtered = 0
         self.total_fees = 0.0
         self.gross_pnl = 0.0
         self.net_pnl = 0.0
@@ -1152,6 +1168,8 @@ class KOTradingEnv(gym.Env):
             if prox >= 0.75:
                 return 1  # close
         if signal != 0 and conf >= conf_min and signal != self.position:
+            if not self.regime_entry_ok(self.idx, signal):
+                return 0
             if self.mr_only:
                 for cert_idx in range(self.n_certs - 1, -1, -1):
                     sizes = [1, 0] if cert_idx == self.n_certs - 1 else [0, 1]
@@ -1273,6 +1291,30 @@ class KOTradingEnv(gym.Env):
         return (edge_fees >= self.min_edge_ratio
                 and ko_atr >= self.min_ko_buffer_atr
                 and mr_ko_ratio >= min_ratio)
+
+    def regime_entry_ok(self, idx: int, direction: int) -> bool:
+        """Lean causal regime gate layered on top of the v2 policy."""
+        if not self.regime_filter:
+            return True
+        s = self.series
+        assert s is not None
+        atr_pct = self._atr_percentile(idx)
+        if atr_pct < self.min_atr_pct or atr_pct > self.max_atr_pct:
+            return False
+        atr = self._atr_at(idx)
+        price = float(s.close[idx])
+        mid = float(s.mid[idx])
+        mr_room = -direction * (price - mid) / max(atr, 1e-9)
+        if mr_room < self.min_mr_room_atr:
+            return False
+        d80 = float(s.market[idx, 5])
+        if direction < 0 and d80 > self.max_short_d80:
+            return False
+        if direction > 0 and d80 < self.min_long_d80:
+            return False
+        if self.current_signal_conf() < self.min_conf:
+            return False
+        return True
 
     def _unrealized(self, price: float) -> float:
         if self.position == 0 or self.entry_price <= 0:
@@ -1682,7 +1724,9 @@ class KOTradingEnv(gym.Env):
                 if self.position != 0:
                     self._close_position(idx, reason="close")
             elif kind == "entry":
-                if not self.entry_edge_ok(idx, cert_idx, size_idx):
+                if not self.regime_entry_ok(idx, direction):
+                    self.regime_filtered += 1
+                elif not self.entry_edge_ok(idx, cert_idx, size_idx):
                     self.filtered_entries += 1
                 else:
                     same = (self.position == direction and self.cert_idx == cert_idx

@@ -227,6 +227,7 @@ def ko_env_result(env: KOTradingEnv) -> dict:
         "size_counts": list(env.size_entry_counts),
         "avg_stake_usd": float(stakes.mean()) if len(stakes) else 0.0,
         "filtered_entries": int(env.filtered_entries),
+        "regime_filtered": int(env.regime_filtered),
         "signals_total": int(env.total_signals),
         "signals_used": int(env.signals_used),
         "signals_ignored": int(env.signals_ignored),
@@ -451,6 +452,7 @@ def ko_aggregate(results: Sequence[dict]) -> dict:
         "cert_counts": cert_counts,
         "size_counts": size_counts,
         "filtered_entries": int(sum(r.get("filtered_entries", 0) for r in results)),
+        "regime_filtered": int(sum(r.get("regime_filtered", 0) for r in results)),
         "signals_total": int(sum(r["signals_total"] for r in results)),
         "signals_used": int(sum(r["signals_used"] for r in results)),
         "signals_ignored": int(sum(r["signals_ignored"] for r in results)),
@@ -512,7 +514,7 @@ def write_ko_by_timeframe_csv(path: str, split: str,
               "trade_count", "win_rate", "avg_holding_bars", "avg_trade_usd",
               "avg_stake_usd", "gross_pnl_usd", "fees_usd", "net_pnl_usd",
               "fee_to_gross", "ko_count", "ko_rate", "signals_total", "signals_used",
-              "signals_ignored", "standalone_trades"]
+              "signals_ignored", "standalone_trades", "regime_filtered"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
@@ -548,7 +550,7 @@ def write_ko_by_ticker_csv(path: str, split: str,
               "fee_to_gross", "ko_count", "ko_rate", "close_count", "sma_cross_count",
               "mean_revert_count", "max_hold_count", "avg_holding_close",
               "avg_holding_ko", "avg_holding_target", "signals_total", "signals_used",
-              "signals_ignored", "standalone_trades"]
+              "signals_ignored", "standalone_trades", "regime_filtered"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
@@ -603,7 +605,7 @@ def write_ko_per_series_csv(path: str, split: str, method: str, results: Sequenc
               "target_exit_count", "avg_holding_close", "avg_holding_ko",
               "avg_holding_target", "cert_count_0", "cert_count_1", "cert_count_2",
               "cert_count_3", "signals_total", "signals_used",
-              "signals_ignored", "standalone_trades"]
+              "signals_ignored", "standalone_trades", "regime_filtered"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
@@ -749,7 +751,7 @@ def format_ko_table(split: str, aggs: Dict[str, dict], high_conf: float,
                     size_fractions: Sequence[float]) -> str:
     lines = [f"\n=== {split.upper()} (KO certificates) ==="]
     header = (f"{'method':<16} {'meanRet':>9} {'maxDD':>8} {'trades':>7} "
-              f"{'win%':>6} {'hold':>7} {'KOs':>5} {'KO%':>6} {'part':>5} {'filt':>5} {'MR/KO':>7} "
+              f"{'win%':>6} {'hold':>7} {'KOs':>5} {'KO%':>6} {'part':>5} {'filt':>5} {'rfilt':>6} {'MR/KO':>7} "
               f"{'fees$':>9} {'gross$':>10} {'net$':>10} {'fee/gross':>9} "
               f"{'sigUse%':>8} {'certPref':>18} {'sizePref':>12}")
     lines.append(header)
@@ -762,7 +764,7 @@ def format_ko_table(split: str, aggs: Dict[str, dict], high_conf: float,
             f"{a['trade_count']:>7d} {a['win_rate']*100:>5.1f}% {a['avg_holding_bars']:>6.1f} "
             f"{a['ko_count']:>5d} {a['ko_rate']*100:>5.1f}% "
             f"{a.get('partial_count', 0):>5d} {a.get('filtered_entries', 0):>5d} "
-            f"{a.get('avg_mr_ko_ratio', 0.0):>7.2f} "
+            f"{a.get('regime_filtered', 0):>6d} {a.get('avg_mr_ko_ratio', 0.0):>7.2f} "
             f"{a['fees_usd']:>9.0f} {a['gross_pnl_usd']:>10.0f} {a['net_pnl_usd']:>10.0f} "
             f"{fg_s:>9} {signal_usage_rate(a)*100:>7.1f}% "
             f"{_cert_pref(a['cert_counts'], cert_leverages):>18} "
@@ -904,6 +906,17 @@ def parse_args():
                    help="Override fee multiplier for ratio features (2=round trip).")
     p.add_argument("--legacy-obs", action="store_true",
                    help="Use the legacy KO observation layout (for v2 checkpoints).")
+    p.add_argument("--regime-filter", action="store_true",
+                   help="Enable the lean causal regime/entry filter.")
+    p.add_argument("--min-atr-pct", type=float, default=0.0)
+    p.add_argument("--max-atr-pct", type=float, default=1.0)
+    p.add_argument("--min-mr-room-atr", type=float, default=-99.0,
+                   help="Minimum directional room to the mean in ATR.")
+    p.add_argument("--max-short-d80", type=float, default=99.0,
+                   help="Block shorts when (close-SMA80)/ATR is above this.")
+    p.add_argument("--min-long-d80", type=float, default=-99.0,
+                   help="Block longs when (close-SMA80)/ATR is below this.")
+    p.add_argument("--min-conf", type=float, default=0.0)
     p.add_argument("--device", default="cpu")
     p.add_argument("--out-dir", default=None)
     return p.parse_args()
@@ -990,6 +1003,16 @@ def main():
     legacy_obs = bool(args.legacy_obs) or bool(cfg.get("legacy_obs_layout", False))
     if args.fee_basis is not None:
         fee_basis = float(args.fee_basis)
+    regime_filter = bool(args.regime_filter) or bool(cfg.get("regime_filter", False))
+    min_atr_pct = float(cfg.get("min_atr_pct", 0.0) if args.min_atr_pct == 0.0 else args.min_atr_pct)
+    max_atr_pct = float(cfg.get("max_atr_pct", 1.0) if args.max_atr_pct == 1.0 else args.max_atr_pct)
+    min_mr_room_atr = (float(cfg.get("min_mr_room_atr", -99.0))
+                       if args.min_mr_room_atr == -99.0 else args.min_mr_room_atr)
+    max_short_d80 = (float(cfg.get("max_short_d80", 99.0))
+                     if args.max_short_d80 == 99.0 else args.max_short_d80)
+    min_long_d80 = (float(cfg.get("min_long_d80", -99.0))
+                    if args.min_long_d80 == -99.0 else args.min_long_d80)
+    min_conf = float(cfg.get("min_conf", 0.0) if args.min_conf == 0.0 else args.min_conf)
     if args.timeframes is not None or args.exclude_timeframes is not None:
         timeframes = resolve_timeframes(args.timeframes, args.exclude_timeframes)
     else:
@@ -1055,6 +1078,13 @@ def main():
             partial_atr_percentile=partial_atr_percentile,
             partial_atr_window=partial_atr_window,
             partial_min_net_usd=partial_min_net_usd,
+            regime_filter=regime_filter,
+            min_atr_pct=min_atr_pct,
+            max_atr_pct=max_atr_pct,
+            min_mr_room_atr=min_mr_room_atr,
+            max_short_d80=max_short_d80,
+            min_long_d80=min_long_d80,
+            min_conf=min_conf,
             legacy_obs_layout=legacy_obs,
             signal_bonus=signal_bonus, signal_conf_min=signal_conf_min,
         )
@@ -1161,6 +1191,13 @@ def main():
             "partial_atr_percentile": partial_atr_percentile,
             "partial_atr_window": partial_atr_window,
             "partial_min_net_usd": partial_min_net_usd,
+            "regime_filter": regime_filter,
+            "min_atr_pct": min_atr_pct,
+            "max_atr_pct": max_atr_pct,
+            "min_mr_room_atr": min_mr_room_atr,
+            "max_short_d80": max_short_d80,
+            "min_long_d80": min_long_d80,
+            "min_conf": min_conf,
             "legacy_obs_layout": legacy_obs,
         })
     else:

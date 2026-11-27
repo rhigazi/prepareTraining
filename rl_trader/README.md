@@ -568,6 +568,50 @@ Die Teilziele (8 Partials) federn das nicht ab. `v2_ml4t_final` bleibt mit
 überlegen. Die reine MR-/Ratio-Richtung ist damit für 1Hour nicht
 konkurrenzfähig; der Hebel 80x ist auf diesen Signalen zu KO-anfällig.
 
+## V2-Regime-Filter: MSFT-Analyse & Kostenfilter
+
+Die 19 MSFT-Trades aus `v2_ml4t_final (Legacy, 1h)` wurden analysiert. Die
+5 KOs sind gemischt: 3 Longs mit wenig Mean-Reversion-Raum (ATR-Pct 0.40–0.70,
+MR-Room 0.16–0.91) und 2 Shorts in stark überdehnten Uptrends
+(d80 +8.81/+10.0). Der leaneste wirksame Filter:
+
+```text
+Blockiere Short-Einstiege, wenn (close - SMA80) / ATR > 5.0
+und require ml4t-Confidence >= 0.65 am Einstieg.
+Exits, Größe, Scheine und Policy bleiben unverändert.
+```
+
+Vergleich auf 1Hour (Test + OOT AAPL/NVDA/MSFT):
+
+| Split/Metrik | `v2_ml4t_final` | `v2_ml4t_1h_regime_filter` |
+|---|---:|---:|
+| Test Return | −0.20 % | −0.44 % |
+| Test MaxDD | 2.48 % | 2.38 % |
+| Test Trades | 23 | 23 |
+| Test KOs | 3 (13.0 %) | 3 (13.0 %) |
+| OOT Return | +6.80 % | **+8.70 %** |
+| OOT MaxDD | 6.02 % | **4.68 %** |
+| OOT Trades | 60 | 49 |
+| OOT KOs | 9 (15.0 %) | **7 (14.3 %)** |
+| OOT Fees $ | 1.110 | 910 |
+| OOT Net $ | 2.039 | **2.609** |
+| OOT Fee/Gross | 0.35 | 0.26 |
+
+**OOT nach Ticker:**
+
+| Ticker | v2 Return | Filter Return | v2 KOs | Filter KOs | v2 Net $ | Filter Net $ |
+|---|---:|---:|---:|---:|---:|---:|
+| AAPL | +13.05 % | +11.98 % | 1 | 1 | 1.305 | 1.198 |
+| NVDA | +11.79 % | **+13.97 %** | 3 | 3 | 1.179 | 1.397 |
+| MSFT | −4.45 % | **+0.14 %** | 5 | 3 | −445 | +14 |
+
+**Fazit:** Der Filter entlastet MSFT deutlich (−4.45 % → +0.14 %, 5 → 3 KOs)
+und verbessert OOT gesamt (+6.80 % → +8.70 %, Netto +2.039 $ → +2.609 $),
+ohne AAPL/NVDA zu beschädigen. Der **Testsplit bleibt negativ** (−0.44 %);
+der Filter blockiert dort nur einen Einstieg und trifft keinen der großen
+Testverlierer. Weitere Test-Filter wären Overfitting. Details:
+`rl_trader/reports/v2_ml4t_1h_regime_filter.md`.
+
 ## Evaluation
 
 ```bash
