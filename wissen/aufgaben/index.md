@@ -20,3 +20,4 @@ Alle Aufgaben liegen als eigene Dateien in diesem Verzeichnis. Das Format ist in
 * [A6: Re-Training mit Gate](a6-retraining-gate.md) — **abgeschlossen** (retrain_production.py)
 * [A7: RL-Trading-Prototyp](a7-rl-trading.md) — **abgeschlossen** (rl_trader/env.py, train_rl.py, eval_rl.py)
 * [A8: Projektmanagement-/OKF-Tooling](a8-projektmanagement-tooling.md) — **abgeschlossen** (app/*, tools/*, definitions/*, wissen/*)
+* [A9: RL-Regime-Filter-Analyse & Evaluation](a9-rl-regime-filter.md) — **abgeschlossen** (rl_trader/reports/v2_ml4t_1h_regime_filter.md)
