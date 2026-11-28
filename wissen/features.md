@@ -31,3 +31,4 @@ tags: [features, steuerung]
 * [RL-Trading-Prototyp](features/f7-rl-trading.md) — umgesetzt · Priorität **niedrig** · [A7](aufgaben/a7-rl-trading.md)
 * [Projektmanagement-/OKF-Tooling](features/f8-projektmanagement-tooling.md) — umgesetzt · Priorität **hoch** · [A8](aufgaben/a8-projektmanagement-tooling.md)
 * [RL-Experimente & Regime-Filter](features/f9-rl-experimente.md) — umgesetzt · Priorität **mittel** · [A9](aufgaben/a9-rl-regime-filter.md)
+* [Hyperparameter-Suchergebnisse (eval_3ways)](features/f10-hyperparameter-ergebnisse.md) — umgesetzt · Priorität **mittel** · [A10](aufgaben/a10-baseline-opt.md) [A11](aufgaben/a11-sma-auto-opt.md) [A12](aufgaben/a12-ml4t-opt.md)

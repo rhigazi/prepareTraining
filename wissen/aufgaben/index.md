@@ -21,3 +21,6 @@ Alle Aufgaben liegen als eigene Dateien in diesem Verzeichnis. Das Format ist in
 * [A7: RL-Trading-Prototyp](a7-rl-trading.md) — **abgeschlossen** (rl_trader/env.py, train_rl.py, eval_rl.py)
 * [A8: Projektmanagement-/OKF-Tooling](a8-projektmanagement-tooling.md) — **abgeschlossen** (app/*, tools/*, definitions/*, wissen/*)
 * [A9: RL-Regime-Filter-Analyse & Evaluation](a9-rl-regime-filter.md) — **abgeschlossen** (rl_trader/reports/v2_ml4t_1h_regime_filter.md)
+* [A10: baseline_opt Gewinner (base_05)](a10-baseline-opt.md) — **abgeschlossen** (runs/eval_3ways/baseline_opt/best)
+* [A11: sma_auto_opt Gewinner (sma_05)](a11-sma-auto-opt.md) — **abgeschlossen** (runs/eval_3ways/sma_auto_opt/best)
+* [A12: ml4t_opt Gewinner (ml4t_04)](a12-ml4t-opt.md) — **abgeschlossen** (runs/eval_3ways/ml4t_opt/best)
