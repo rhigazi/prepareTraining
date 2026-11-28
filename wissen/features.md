@@ -22,4 +22,11 @@ tags: [features, steuerung]
 
 # Umgesetzte Features
 
-*Noch keine.*
+* [Datenpipeline (Feature-Engineering)](features/f1-datenpipeline.md) — umgesetzt · Priorität **hoch** · [A1](aufgaben/a1-datenpipeline.md)
+* [Modelltraining (Turning Points)](features/f2-modelltraining.md) — umgesetzt · Priorität **hoch** · [A2](aufgaben/a2-modelltraining.md)
+* [Hyperparameter-/Feature-Suche](features/f3-hyperparameter-suche.md) — umgesetzt · Priorität **mittel** · [A3](aufgaben/a3-hyperparameter-suche.md)
+* [Annotation & Validierung vs. SMA-Segmenten](features/f4-annotation-validierung.md) — umgesetzt · Priorität **mittel** · [A4](aufgaben/a4-annotation-validierung.md)
+* [Produktions-Bundles & Inferenz](features/f5-produktions-bundles.md) — umgesetzt · Priorität **hoch** · [A5](aufgaben/a5-produktions-bundles.md)
+* [Re-Training mit Gate](features/f6-retraining-gate.md) — umgesetzt · Priorität **mittel** · [A6](aufgaben/a6-retraining-gate.md)
+* [RL-Trading-Prototyp](features/f7-rl-trading.md) — umgesetzt · Priorität **niedrig** · [A7](aufgaben/a7-rl-trading.md)
+* [Projektmanagement-/OKF-Tooling](features/f8-projektmanagement-tooling.md) — umgesetzt · Priorität **hoch** · [A8](aufgaben/a8-projektmanagement-tooling.md)
