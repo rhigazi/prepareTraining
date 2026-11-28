@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OKF Projekt-Manager</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="kopf">
+    <h1 class="kopf-titel">OKF Projekt-Manager</h1>
+    <nav id="navigation" class="navigation" aria-label="Hauptnavigation">
+      <ul class="navigation-liste">
+        <li><a class="navigation-link" href="#/uebersicht" data-ansicht="uebersicht">Übersicht</a></li>
+        <li><a class="navigation-link" href="#/wellen" data-ansicht="wellen">Wellen</a></li>
+        <li><a class="navigation-link" href="#/aufgaben" data-ansicht="aufgaben">Aufgaben</a></li>
+        <li><a class="navigation-link" href="#/features" data-ansicht="features">Feature List</a></li>
+        <li><a class="navigation-link" href="#/entscheidungen" data-ansicht="entscheidungen">Entscheidungen</a></li>
+        <li class="navigation-gruppe">
+          <a class="navigation-link" href="#/projekt" data-ansicht="projekt">Projekt</a>
+          <ul class="navigation-unterpunkte">
+            <li><a class="navigation-link" href="#/projekt/konzept" data-ansicht="projekt" data-unterpunkt="konzept">Konzept</a></li>
+            <li><a class="navigation-link" href="#/projekt/technische-spec" data-ansicht="projekt" data-unterpunkt="technische-spec">Technische Spec</a></li>
+            <li><a class="navigation-link" href="#/projekt/user-stories" data-ansicht="projekt" data-unterpunkt="user-stories">User Stories</a></li>
+            <li><a class="navigation-link" href="#/projekt/phasen" data-ansicht="projekt" data-unterpunkt="phasen">Phasen</a></li>
+            <li><a class="navigation-link" href="#/projekt/log" data-ansicht="projekt" data-unterpunkt="log">Log</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </header>
+
+  <div id="fehler" class="meldung meldung--fehler" role="alert" hidden></div>
+  <div id="meldung" class="meldung meldung--erfolg" role="status" hidden></div>
+
+  <main id="ansicht" class="ansicht">
+    <section id="ansicht-uebersicht" class="ansicht-bereich" data-ansicht="uebersicht" hidden>
+      <h2 class="ansicht-titel">Übersicht</h2>
+      <form id="filter" class="filter" aria-label="Filter">
+        <div class="filter-feld">
+          <label for="filter-status">Status</label>
+          <select id="filter-status" name="status">
+            <option value="">Alle</option>
+            <option value="Klarung">Klarung</option>
+            <option value="Offen">Offen</option>
+            <option value="In Arbeit">In Arbeit</option>
+            <option value="Testing">Testing</option>
+            <option value="Dokumentation">Dokumentation</option>
+            <option value="Geschlossen">Geschlossen</option>
+          </select>
+        </div>
+        <div class="filter-feld">
+          <label for="filter-owner">owner</label>
+          <select id="filter-owner" name="owner">
+            <option value="">Alle</option>
+            <option value="mensch">mensch</option>
+            <option value="ai">ai</option>
+            <option value="ohne">ohne</option>
+          </select>
+        </div>
+        <button type="button" id="filter-zuruecksetzen" class="knopf">Filter zurücksetzen</button>
+      </form>
+      <div id="tabelle" class="tabelle-bereich"></div>
+      <section class="uebersicht-block" aria-labelledby="uebersicht-zuletzt-titel">
+        <h3 id="uebersicht-zuletzt-titel" class="uebersicht-titel">Zuletzt geändert</h3>
+        <div id="uebersicht-zuletzt" class="tabelle-bereich">
+          <p class="leer">Keine Einträge.</p>
+        </div>
+      </section>
+      <section class="uebersicht-block" aria-labelledby="uebersicht-klarung-titel">
+        <h3 id="uebersicht-klarung-titel" class="uebersicht-titel">Offene Rückfragen (Klarung)</h3>
+        <div id="uebersicht-klarung" class="listen-bereich">
+          <p class="leer">Keine offenen Rückfragen.</p>
+        </div>
+      </section>
+    </section>
+
+    <section id="ansicht-wellen" class="ansicht-bereich" data-ansicht="wellen" hidden>
+      <h2 class="ansicht-titel">Wellen</h2>
+      <form id="filter-wellen" class="filter" aria-label="Filter Wellen">
+        <div class="filter-feld">
+          <label for="filter-wellen-status">Status</label>
+          <select id="filter-wellen-status" name="status">
+            <option value="">Alle</option>
+            <option value="Klarung">Klarung</option>
+            <option value="Offen">Offen</option>
+            <option value="In Arbeit">In Arbeit</option>
+            <option value="Testing">Testing</option>
+            <option value="Dokumentation">Dokumentation</option>
+            <option value="Geschlossen">Geschlossen</option>
+          </select>
+        </div>
+        <div class="filter-feld">
+          <label for="filter-wellen-owner">owner</label>
+          <select id="filter-wellen-owner" name="owner">
+            <option value="">Alle</option>
+            <option value="mensch">mensch</option>
+            <option value="ai">ai</option>
+            <option value="ohne">ohne</option>
+          </select>
+        </div>
+        <button type="button" id="filter-wellen-zuruecksetzen" class="knopf">Filter zurücksetzen</button>
+      </form>
+      <div id="tabelle-wellen" class="tabelle-bereich"></div>
+      <div id="formular-welle" class="formular-bereich"></div>
+    </section>
+
+    <section id="ansicht-aufgaben" class="ansicht-bereich" data-ansicht="aufgaben" hidden>
+      <h2 class="ansicht-titel">Aufgaben</h2>
+      <form id="filter-aufgaben" class="filter" aria-label="Filter Aufgaben">
+        <div class="filter-feld">
+          <label for="filter-aufgaben-status">Status</label>
+          <select id="filter-aufgaben-status" name="status">
+            <option value="">Alle</option>
+            <option value="Klarung">Klarung</option>
+            <option value="Offen">Offen</option>
+            <option value="In Arbeit">In Arbeit</option>
+            <option value="Testing">Testing</option>
+            <option value="Dokumentation">Dokumentation</option>
+            <option value="Geschlossen">Geschlossen</option>
+          </select>
+        </div>
+        <div class="filter-feld">
+          <label for="filter-aufgaben-owner">owner</label>
+          <select id="filter-aufgaben-owner" name="owner">
+            <option value="">Alle</option>
+            <option value="mensch">mensch</option>
+            <option value="ai">ai</option>
+            <option value="ohne">ohne</option>
+          </select>
+        </div>
+        <button type="button" id="filter-aufgaben-zuruecksetzen" class="knopf">Filter zurücksetzen</button>
+      </form>
+      <div id="tabelle-aufgaben" class="tabelle-bereich"></div>
+      <div id="formular-aufgabe" class="formular-bereich"></div>
+    </section>
+
+    <section id="ansicht-features" class="ansicht-bereich" data-ansicht="features" hidden>
+      <h2 class="ansicht-titel">Feature List</h2>
+      <div id="liste-features" class="listen-bereich"></div>
+    </section>
+
+    <section id="ansicht-entscheidungen" class="ansicht-bereich" data-ansicht="entscheidungen" hidden>
+      <h2 class="ansicht-titel">Entscheidungen</h2>
+      <div id="liste-entscheidungen" class="listen-bereich"></div>
+    </section>
+
+    <section id="ansicht-projekt" class="ansicht-bereich" data-ansicht="projekt" hidden>
+      <h2 class="ansicht-titel">Projekt</h2>
+      <div id="liste-projekt" class="listen-bereich"></div>
+    </section>
+
+    <section id="ansicht-detail" class="ansicht-bereich" data-ansicht="detail" hidden>
+      <div id="detail" class="detail-bereich"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

@@ -16,3 +16,4 @@ production_models/*/candidates/
 production_models/*/archive/
 production_models/_tmp/
 production_models/retrain.log
+config.json

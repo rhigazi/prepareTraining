@@ -1,0 +1,465 @@
+:root {
+  --farbe-hintergrund: #f6f7f9;
+  --farbe-fläche: #ffffff;
+  --farbe-text: #1f2933;
+  --farbe-text-schwach: #52606d;
+  --farbe-rahmen: #cbd2d9;
+  --farbe-akzent: #1f6feb;
+  --farbe-akzent-hell: #e3edfd;
+  --farbe-fehler: #b42318;
+  --farbe-fehler-hell: #fee4e2;
+  --farbe-erfolg: #17663a;
+  --farbe-erfolg-hell: #e3f5ea;
+  --abstand: 1rem;
+  --radius: 6px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--farbe-hintergrund);
+  color: var(--farbe-text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+
+.kopf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--abstand) calc(2 * var(--abstand));
+  background: var(--farbe-fläche);
+  border-bottom: 1px solid var(--farbe-rahmen);
+}
+
+.kopf-titel {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.navigation-liste,
+.navigation-unterpunkte {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navigation-gruppe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.navigation-unterpunkte {
+  padding-left: 0.5rem;
+  border-left: 1px solid var(--farbe-rahmen);
+}
+
+.navigation-link {
+  display: inline-block;
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius);
+  color: var(--farbe-text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.navigation-link:hover,
+.navigation-link:focus-visible {
+  background: var(--farbe-hintergrund);
+}
+
+.navigation-link.aktiv {
+  background: var(--farbe-akzent-hell);
+  color: var(--farbe-akzent);
+  font-weight: 600;
+}
+
+.navigation-unterpunkte .navigation-link {
+  font-size: 0.9rem;
+}
+
+.ansicht {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: calc(2 * var(--abstand));
+}
+
+.ansicht-titel {
+  margin-top: 0;
+}
+
+.meldung {
+  max-width: 1100px;
+  margin: var(--abstand) auto 0;
+  padding: 0.75rem var(--abstand);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+
+.meldung--fehler {
+  border-color: var(--farbe-fehler);
+  background: var(--farbe-fehler-hell);
+  color: var(--farbe-fehler);
+}
+
+.meldung--erfolg {
+  border-color: var(--farbe-erfolg);
+  background: var(--farbe-erfolg-hell);
+  color: var(--farbe-erfolg);
+}
+
+.filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand);
+  align-items: flex-end;
+  margin-bottom: var(--abstand);
+  padding: var(--abstand);
+  background: var(--farbe-fläche);
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: var(--radius);
+}
+
+.filter-feld {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.filter label {
+  font-size: 0.85rem;
+  color: var(--farbe-text-schwach);
+}
+
+select,
+input,
+textarea {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: var(--radius);
+  background: var(--farbe-fläche);
+  color: inherit;
+  font: inherit;
+}
+
+textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.knopf,
+button {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: var(--radius);
+  background: var(--farbe-fläche);
+  color: var(--farbe-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.knopf:hover,
+button:hover:not(:disabled) {
+  background: var(--farbe-hintergrund);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.knopf--primaer,
+button[type="submit"] {
+  border-color: var(--farbe-akzent);
+  background: var(--farbe-akzent);
+  color: #ffffff;
+}
+
+.knopf--primaer:hover,
+button[type="submit"]:hover:not(:disabled) {
+  background: #1a5fce;
+}
+
+.tabelle-bereich,
+.listen-bereich,
+.formular-bereich,
+.detail-bereich {
+  margin-bottom: calc(2 * var(--abstand));
+}
+
+.uebersicht-block {
+  margin-bottom: calc(2 * var(--abstand));
+}
+
+.uebersicht-titel {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--farbe-text-schwach);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--farbe-fläche);
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: var(--radius);
+}
+
+th,
+td {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--farbe-rahmen);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: #eef1f4;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--farbe-text-schwach);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tr.klarung {
+  background: #fff6d6;
+}
+
+tbody tr.klickbar {
+  cursor: pointer;
+}
+
+tbody tr.klickbar:hover {
+  background: var(--farbe-akzent-hell);
+}
+
+.status,
+.owner {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: #eef1f4;
+}
+
+.status--klarung {
+  background: #fff0c2;
+  color: #7a5b00;
+}
+
+.status--geschlossen {
+  background: #e4e7eb;
+  color: var(--farbe-text-schwach);
+}
+
+.leer {
+  padding: var(--abstand);
+  color: var(--farbe-text-schwach);
+}
+
+.liste {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--farbe-fläche);
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: var(--radius);
+}
+
+.liste li + li {
+  border-top: 1px solid var(--farbe-rahmen);
+}
+
+.liste a,
+.liste button.liste-eintrag {
+  display: block;
+  width: 100%;
+  padding: 0.6rem var(--abstand);
+  border: none;
+  background: transparent;
+  color: var(--farbe-akzent);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.liste a:hover,
+.liste button.liste-eintrag:hover {
+  background: var(--farbe-akzent-hell);
+}
+
+.formular {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 640px;
+  padding: var(--abstand);
+  background: var(--farbe-fläche);
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: var(--radius);
+}
+
+.formular-feld {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.feldfehler {
+  color: var(--farbe-fehler);
+  font-size: 0.85rem;
+}
+
+.hinweis {
+  display: block;
+  color: var(--farbe-fehler);
+  font-size: 0.85rem;
+}
+
+.formular-ueberschrift {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--farbe-text-schwach);
+}
+
+.formular-erfolg {
+  max-width: 640px;
+  padding: var(--abstand);
+  border: 1px solid var(--farbe-erfolg);
+  border-radius: var(--radius);
+  background: var(--farbe-erfolg-hell);
+  color: var(--farbe-erfolg);
+}
+
+.formular-erfolg dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem var(--abstand);
+  margin: 0.5rem 0;
+}
+
+.formular-erfolg dt {
+  font-weight: 600;
+}
+
+.formular-erfolg dd {
+  margin: 0;
+}
+
+.formular-erfolg a {
+  color: inherit;
+}
+
+.detail-kopf {
+  margin-bottom: var(--abstand);
+  padding: var(--abstand);
+  background: var(--farbe-fläche);
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: var(--radius);
+}
+
+.detail-kopf dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem var(--abstand);
+  margin: 0;
+}
+
+.detail-kopf dt {
+  font-weight: 600;
+}
+
+.detail-kopf dd {
+  margin: 0;
+}
+
+.detail-inhalt {
+  padding: var(--abstand);
+  background: var(--farbe-fläche);
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: var(--radius);
+}
+
+.detail-inhalt h1,
+.detail-inhalt h2,
+.detail-inhalt h3 {
+  margin-top: 1.25em;
+}
+
+.detail-inhalt pre {
+  overflow-x: auto;
+  padding: 0.75rem;
+  background: var(--farbe-hintergrund);
+  border-radius: var(--radius);
+}
+
+.detail-inhalt blockquote {
+  margin: 0.75rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--farbe-rahmen);
+  color: var(--farbe-text-schwach);
+}
+
+.detail-aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: var(--abstand) 0;
+}
+
+.kurzkontext {
+  width: 100%;
+  min-height: 8rem;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.85rem;
+}
+
+/* Feature-List (A23): Status/Zähler unter dem Feature-Titel ausrichten. */
+.feature-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0;
+  padding: 0 var(--abstand) 0.6rem;
+}
+
+.feature-gruppe {
+  margin-bottom: calc(1.5 * var(--abstand));
+}
+
+@media (max-width: 720px) {
+  .kopf {
+    padding: var(--abstand);
+  }
+
+  .navigation-liste {
+    flex-wrap: wrap;
+  }
+
+  .navigation-gruppe {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ansicht {
+    padding: var(--abstand);
+  }
+}
